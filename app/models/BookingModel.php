@@ -78,7 +78,7 @@ class BookingModel extends Model
         if (!$free) { db()->roll_back(); return ['ok' => false, 'error' => 'Sorry, that room type was just taken for your time. Please choose another time.']; }
         if ($user) {
             $pending = (int) q_val("SELECT COUNT(*) FROM bookings WHERE user_id = ? AND status = 'pending_payment' AND hold_expires_at > ?", [$user['id'], now_str()]);
-            if ($pending >= 3) { db()->roll_back(); return ['ok' => false, 'error' => 'You already have 3 unpaid bookings. Please pay or wait for them to expire.']; }
+            if ($pending >= 20) { db()->roll_back(); return ['ok' => false, 'error' => 'You already have 3 unpaid bookings. Please pay or wait for them to expire.']; }
         }
         $rate = $this->price($type, $stay, (int) $w['hours']);
         $fee = $source === 'walkin' ? 0.0 : (float) setting('booking_fee', '30');
