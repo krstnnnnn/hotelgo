@@ -236,7 +236,7 @@ $config['sess_cookie_name']        = 'LLSession';
 $config['sess_expiration']         = 7200;
 $config['sess_save_path']          = '';
 $config['sess_match_ip']           = FALSE;
-$config['sess_match_fingerprint']  = FALSE;
+$config['sess_match_fingerprint']  = TRUE;
 $config['sess_time_to_update']     = 300;
 $config['sess_regenerate_destroy'] = FALSE;
 $config['sess_expire_on_close']    = FALSE;
@@ -262,10 +262,10 @@ $config['session_hmac_secret']     = getenv('APP_KEY') ?: '';
 $config['cookie_prefix']           = '';
 $config['cookie_domain']           = '';
 $config['cookie_path']             = '/';
-$config['cookie_secure']           = FALSE;
+$config['cookie_secure']           = (getenv('APP_ENV') === 'production');
 $config['cookie_expiration']       = 86400;
-$config['cookie_httponly']         = FALSE;
-$config['cookie_samesite']         = 'Strict';
+$config['cookie_httponly']         = TRUE;
+$config['cookie_samesite']         = 'Lax';
 
 /*
 |--------------------------------------------------------------------------
@@ -367,7 +367,7 @@ $config['csrf_regenerate']         = FALSE;
 */
 $config['security_headers'] = [
     // ── CSP ──
-    'csp_enabled' => false,
+    'csp_enabled' => true,
 
     // ── CSP sources ──
     'script_src'  => ['https://cdn.jsdelivr.net', 'https://cdnjs.cloudflare.com'],
@@ -375,7 +375,7 @@ $config['security_headers'] = [
     'font_src'    => ['https://fonts.gstatic.com'],
     'img_src'     => [],
     'connect_src' => [],
-    'frame_src'   => [],
+    'frame_src'   => ['https://www.google.com'],
     
     // ── CSP rollout ──
     'csp_report_only' => false,

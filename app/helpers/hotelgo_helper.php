@@ -1,0 +1,175 @@
+<?php
+defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
+
+/*
+|--------------------------------------------------------------------
+| HOTELGO helper functions (loaded automatically, see config/autoload.php)
+|--------------------------------------------------------------------
+| Rule 1: every value shown on a page goes through e()      -> stops XSS
+| Rule 2: every SQL uses "?" placeholders through q()        -> stops SQL injection
+| Rule 3: every redirect uses go() (it always stops the script)
+*/
+date_default_timezone_set('Asia/Manila');
+
+/* ---------- small basics ---------- */
+function e($value): string { return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
+function env_get(string $key, string $default = ''): string { $v = getenv($key); return ($v === false || $v === '') ? $default : $v; }
+function is_production(): bool { return env_get('APP_ENV', 'development') === 'production'; }
+function money($n): string { return '₱' . number_format((float) $n, 2); }
+function now_str(): string { return date('Y-m-d H:i:s'); }
+function fmt_dt($s, string $f = 'D, j M Y · g:i A'): string { $t = strtotime((string) $s); return $t ? date($f, $t) : ''; }
+function post_str(string $k, string $d = ''): string { $v = $_POST[$k] ?? $d; return is_string($v) ? trim($v) : $d; }
+function get_str(string $k, string $d = ''): string { $v = $_GET[$k] ?? $d; return is_string($v) ? trim($v) : $d; }
+function post_int(string $k, int $d = 0): int { $v = $_POST[$k] ?? ''; return (is_string($v) && preg_match('/^\d{1,9}$/', $v)) ? (int) $v : $d; }
+function get_int(string $k, int $d = 0): int { $v = $_GET[$k] ?? ''; return (is_string($v) && preg_match('/^\d{1,9}$/', $v)) ? (int) $v : $d; }
+function len_ok(string $s, int $min, int $max): bool { $l = mb_strlen($s); return $l >= $min && $l <= $max; }
+
+function client_ip(): string {
+    if (env_get('TRUST_PROXY') === '1' && !empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+        $ip = trim(explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0]);
+        if (filter_var($ip, FILTER_VALIDATE_IP)) return $ip;
+    }
+    return $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+}
+
+/* ---------- database shortcuts (ALL queries use ? placeholders) ---------- */
+function db() { return lava_instance()->db; }
+function q(string $sql, array $params = []): PDOStatement { return db()->raw($sql, array_values($params)); }
+function q_all(string $sql, array $params = []): array { return q($sql, $params)->fetchAll(PDO::FETCH_ASSOC); }
+function q_one(string $sql, array $params = []): ?array { $r = q($sql, $params)->fetch(PDO::FETCH_ASSOC); return $r ?: null; }
+function q_val(string $sql, array $params = []) { $r = q($sql, $params)->fetch(PDO::FETCH_NUM); return $r ? $r[0] : null; }
+function insert_row(string $table, array $data): int {
+    /* $table and the column names come from our own code, never from users */
+    if (!preg_match('/^[a-z_]+$/', $table)) throw new Exception('bad table');
+    foreach (array_keys($data) as $c) if (!preg_match('/^[a-z_0-9]+$/', $c)) throw new Exception('bad column');
+    $sql = 'INSERT INTO ' . $table . ' (' . implode(',', array_keys($data)) . ') VALUES (' . implode(',', array_fill(0, count($data), '?')) . ')';
+    q($sql, array_values($data));
+    return (int) db()->last_id();
+}
+function lock_suffix(): string { return env_get('DB_DRIVER', 'mysql') === 'mysql' ? ' FOR UPDATE' : ''; }
+
+function setting(string $key, string $default = ''): string {
+    static $cache = null;
+    if ($cache === null) { $cache = []; foreach (q_all('SELECT skey, svalue FROM settings') as $r) $cache[$r['skey']] = $r['svalue']; }
+    return $cache[$key] ?? $default;
+}
+
+/* ---------- flash messages ---------- */
+function flash(string $type, string $msg): void { $_SESSION['_flash'][] = [$type, $msg]; }
+function flashes(): array { $f = $_SESSION['_flash'] ?? []; unset($_SESSION['_flash']); return $f; }
+
+/* ---------- redirect that ALWAYS stops the script ---------- */
+function go(string $path = '', int $code = 302): void {
+    header('Location: ' . site_url($path), true, $code);
+    exit;
+}
+
+/* ---------- CSRF (our own check, see CsrfMiddleware) ---------- */
+function csrf_token(): string {
+    if (empty($_SESSION['_csrf'])) $_SESSION['_csrf'] = bin2hex(random_bytes(32));
+    return $_SESSION['_csrf'];
+}
+function csrf_input(): string { return '<input type="hidden" name="_csrf" value="' . e(csrf_token()) . '">'; }
+
+/* ---------- who is logged in? (always re-read from the database) ---------- */
+function current_user(): ?array {
+    static $user = false;
+    if ($user !== false) return $user;
+    $id = $_SESSION['uid'] ?? null;
+    if (!$id) return $user = null;
+    $row = q_one('SELECT id, full_name, email, mobile, role, is_active, must_change_password, mobile_verified_at FROM users WHERE id = ? AND is_active = 1', [(int) $id]);
+    if (!$row) { unset($_SESSION['uid']); return $user = null; }
+    return $user = $row;
+}
+function has_role(string ...$roles): bool { $u = current_user(); return $u !== null && in_array($u['role'], $roles, true); }
+function login_user(int $id): void {
+    session_regenerate_id(true);               // stops session fixation
+    $_SESSION['uid'] = $id;
+    $_SESSION['_csrf'] = bin2hex(random_bytes(32));
+    q('UPDATE users SET last_login_at = ? WHERE id = ?', [now_str(), $id]);
+}
+function logout_user(): void {
+    $_SESSION = [];
+    if (ini_get('session.use_cookies')) {
+        $p = session_get_cookie_params();
+        setcookie(session_name(), '', time() - 42000, $p['path'], $p['domain'], $p['secure'], $p['httponly']);
+    }
+    session_destroy();
+}
+
+/* ---------- audit log ---------- */
+function audit(string $action, string $detail = ''): void {
+    $u = current_user();
+    insert_row('audit_logs', ['user_id' => $u['id'] ?? null, 'action' => mb_substr($action, 0, 60), 'detail' => mb_substr($detail, 0, 250), 'ip' => client_ip(), 'created_at' => now_str()]);
+}
+
+/* ---------- pages ---------- */
+function render(string $view, array $data = [], string $layout = 'site'): void {
+    $L = lava_instance();
+    $data['_user'] = current_user();
+    $data['_flash'] = flashes();
+    $data['_title'] = $data['title'] ?? 'HOTELGO';
+    if ($data['_user']) { header('Cache-Control: no-store, max-age=0'); header('Pragma: no-cache'); }
+    $L->call->view($layout === 'admin' ? 'layout/admin_header' : 'layout/header', $data);
+    $L->call->view($view, $data);
+    $L->call->view($layout === 'admin' ? 'layout/admin_footer' : 'layout/footer', $data);
+}
+function render_admin(string $view, array $data = []): void { render($view, $data, 'admin'); }
+function abort(int $code = 404, string $message = 'That page does not exist.'): void {
+    http_response_code($code);
+    render('errors/http', ['code' => $code, 'message' => $message, 'title' => 'Error ' . $code]);
+    exit;
+}
+
+/* ---------- formatting / small business helpers ---------- */
+function booking_ref(): string {
+    $abc = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; $s = '';
+    for ($i = 0; $i < 6; $i++) $s .= $abc[random_int(0, strlen($abc) - 1)];
+    return 'HG-' . $s;
+}
+function normalize_mobile(string $m): ?string {
+    $m = preg_replace('/[\s\-()]/', '', $m);
+    if (preg_match('/^(\+63|63|0)(9\d{9})$/', $m, $x)) return '+63' . $x[2];
+    return null;
+}
+function mask_mobile(?string $m): string { return $m && strlen($m) > 6 ? substr($m, 0, 6) . ' ••• ' . substr($m, -4) : ''; }
+function mask_email(?string $m): string { if (!$m || !str_contains($m, '@')) return ''; [$a, $b] = explode('@', $m, 2); return substr($a, 0, 2) . '•••@' . $b; }
+function status_class(string $s): string {
+    return match ($s) { 'confirmed', 'paid', 'delivered', 'sent', 'active' => 'ok', 'pending_payment', 'pending', 'logged', 'maintenance' => 'warn', 'checked_in' => 'info', 'failed' => 'bad', default => 'gray' };
+}
+function stay_label(array $b): string { return $b['stay_type'] === 'overnight' ? 'Overnight' : 'Hourly · ' . (int) $b['hours'] . ' hrs'; }
+function csv_safe($v): string { $v = (string) $v; return preg_match('/^[=+\-@\t\r]/', $v) ? "'" . $v : $v; }   // stops CSV formula injection
+function maps_link(): string { return 'https://www.google.com/maps/search/?api=1&query=' . rawurlencode(setting('motel_lat', '13.5188') . ',' . setting('motel_lng', '120.9647')); }
+
+/* ---------- tiny HTTP helper for the payment / SMS / email providers ---------- */
+function http_json(string $method, string $url, array $headers = [], ?array $body = null): array {
+    $ch = curl_init($url);
+    $opt = [CURLOPT_CUSTOMREQUEST => $method, CURLOPT_HTTPHEADER => array_merge(['Content-Type: application/json', 'Accept: application/json'], $headers),
+        CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 15, CURLOPT_SSL_VERIFYPEER => true, CURLOPT_SSL_VERIFYHOST => 2];
+    if ($body !== null) $opt[CURLOPT_POSTFIELDS] = json_encode($body);
+    curl_setopt_array($ch, $opt);
+    $res = curl_exec($ch); $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+    return [$code, json_decode((string) $res, true) ?: []];
+}
+
+function nav_active(string $path): string {
+    $cur = trim((string) parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH), '/');
+    $cur = preg_replace('#^.*?(admin|rooms|my-bookings|booking|login|register)#', '$1', $cur) ?: $cur;
+    return ($cur === $path || ($path !== 'admin' && str_starts_with($cur, $path))) ? ' active' : '';
+}
+
+/* The search form is used on the home page AND the results page */
+function search_form(array $p): string {
+    $stay = $p['stay'] ?? 'hourly'; $times = '';
+    for ($m = 0; $m < 1440; $m += 30) { $t = sprintf('%02d:%02d', intdiv($m, 60), $m % 60); $times .= '<option value="' . $t . '"' . ($t === ($p['time'] ?? '19:00') ? ' selected' : '') . '>' . date('g:i A', strtotime($t)) . '</option>'; }
+    $hrs = ''; foreach ([3, 6, 12] as $h) $hrs .= '<option value="' . $h . '"' . ((int) ($p['hours'] ?? 3) === $h ? ' selected' : '') . '>' . $h . ' hours</option>';
+    $g = ''; for ($i = 1; $i <= 10; $i++) $g .= '<option value="' . $i . '"' . ((int) ($p['guests'] ?? 2) === $i ? ' selected' : '') . '>' . $i . ' guest' . ($i > 1 ? 's' : '') . '</option>';
+    return '<form method="get" action="' . e(site_url('rooms')) . '"><div class="seg">'
+        . '<label><input type="radio" name="stay" value="hourly"' . ($stay === 'hourly' ? ' checked' : '') . '> Hourly</label>'
+        . '<label><input type="radio" name="stay" value="overnight"' . ($stay === 'overnight' ? ' checked' : '') . '> Overnight</label></div>'
+        . '<div class="sf"><div><label for="date">Date</label><input type="date" id="date" name="date" required min="' . date('Y-m-d') . '" max="' . date('Y-m-d', strtotime('+60 days')) . '" value="' . e($p['date'] ?? date('Y-m-d')) . '"></div>'
+        . '<div data-hourly-only><label for="time">Start time</label><select id="time" name="time">' . $times . '</select></div>'
+        . '<div data-hourly-only><label for="hours">Duration</label><select id="hours" name="hours">' . $hrs . '</select></div>'
+        . '<div><label for="guests">Guests</label><select id="guests" name="guests">' . $g . '</select></div>'
+        . '<div></div><button class="btn btn-amber" type="submit">Check availability</button></div></form>';
+}

@@ -1,0 +1,44 @@
+<?php
+defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
+
+class HomeController extends Controller
+{
+    public function __construct()
+    {
+        parent::__construct();
+        $this->call->model('RoomModel');
+        $this->call->model('BookingModel');
+    }
+
+    public function index()
+    {
+        render('home/index', ['types' => $this->RoomModel->types(), 'title' => 'Book a room by the hour or overnight']);
+    }
+
+    /* Search results: GET /rooms?stay=hourly&date=2026-10-17&time=19:00&hours=3&guests=2 */
+    public function rooms()
+    {
+        $p = [
+            'stay'   => in_array(get_str('stay', 'hourly'), ['hourly', 'overnight'], true) ? get_str('stay', 'hourly') : 'hourly',
+            'date'   => get_str('date', date('Y-m-d')),
+            'time'   => get_str('time', '19:00'),
+            'hours'  => get_int('hours', 3),
+            'guests' => max(1, min(10, get_int('guests', 2))),
+        ];
+        $error = null; $rows = [];
+        $w = $this->BookingModel->window($p['stay'], $p['date'], $p['time'], $p['hours']);
+        if (!$w) {
+            $error = 'Please choose a valid date and start time (not in the past, within 60 days).';
+        } else {
+            $avail = $this->BookingModel->availability($w['start'], $w['end']);
+            foreach ($this->RoomModel->types() as $t) {
+                if ((int) $t['max_guests'] < $p['guests']) continue;
+                $t['free'] = $avail[(int) $t['id']] ?? 0;
+                $t['price'] = $this->BookingModel->price($t, $p['stay'], (int) $w['hours']);
+                $t['link'] = site_url('book') . '?' . http_build_query($p + ['type' => $t['id']]);
+                $rows[] = $t;
+            }
+        }
+        render('home/rooms', ['p' => $p, 'w' => $w, 'rows' => $rows, 'error' => $error, 'title' => 'Available rooms']);
+    }
+}

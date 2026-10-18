@@ -1,0 +1,6 @@
+<?php defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed'); ?>
+<h1>Notifications</h1><p class="mute">Automatic SMS and email. "logged" means the message was saved but no provider key is set (simulation).</p>
+<div class="card scroll"><table class="table"><thead><tr><th>When</th><th>Channel</th><th>To</th><th>Message</th><th>Status</th><th></th></tr></thead><tbody>
+<?php foreach ($rows as $n): ?><tr><td><?= e(fmt_dt($n['created_at'], 'j M g:i A')) ?></td><td><b><?= e(strtoupper($n['channel'])) ?></b></td><td><?= e($n['channel'] === 'sms' ? mask_mobile($n['recipient']) : mask_email($n['recipient'])) ?></td><td class="small"><?= e(mb_substr(preg_replace('/\b\d{6}\b/', '••••••', $n['message']), 0, 110)) ?></td>
+<td><span class="pill <?= e(status_class($n['status'])) ?>"><?= e($n['status']) ?></span></td><td><?php if ($n['status'] === 'failed'): ?><form method="post" class="inline" action="<?= e(site_url('admin/notifications/' . (int) $n['id'] . '/retry')) ?>"><?= csrf_input() ?><button class="btn btn-sm btn-out" type="submit">Retry</button></form><?php endif; ?></td></tr><?php endforeach; ?>
+<?php if (!$rows): ?><tr><td colspan="6" class="center mute">Nothing sent yet.</td></tr><?php endif; ?></tbody></table></div>
