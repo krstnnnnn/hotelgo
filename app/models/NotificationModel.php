@@ -43,6 +43,10 @@ class NotificationModel extends Model
     {
         $this->send((int) $b['id'], $b['user_id'] ? (int) $b['user_id'] : null, 'sms', $b['guest_mobile'], '', 'HOTELGO: Booking ' . $b['booking_ref'] . ' was cancelled. Any payment will be refunded to your original payment method.');
     }
+    public function booking_rescheduled(array $b): void
+    {
+        $this->send((int) $b['id'], $b['user_id'] ? (int) $b['user_id'] : null, 'sms', $b['guest_mobile'], '', 'HOTELGO: Booking ' . $b['booking_ref'] . ' moved to ' . fmt_dt($b['start_at'], 'D j M g:i A') . ' - ' . fmt_dt($b['end_at'], 'g:i A') . ', Room ' . $b['room_no'] . '.');
+    }
     public function code(int $userId, string $mobile, string $purpose, string $code): void
     {
         $this->send(null, $userId, 'sms', $mobile, '', 'HOTELGO: your ' . ($purpose === 'reset' ? 'password reset' : 'verification') . ' code is ' . $code . '. It expires in 10 minutes. Never share this code.');

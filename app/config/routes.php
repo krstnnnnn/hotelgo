@@ -48,6 +48,9 @@ $router->group(['middleware' => ['auth']], function ($router) {
     $router->get('/booking/{ref}', 'BookingController::show');
     $router->post('/booking/{ref}/cancel', 'BookingController::cancel');
     $router->get('/booking/{ref}/calendar.ics', 'BookingController::ics');
+    $router->get('/booking/{ref}/receipt', 'BookingController::receipt');
+    $router->get('/booking/{ref}/modify', 'BookingController::modify_form');
+    $router->post('/booking/{ref}/modify', 'BookingController::modify');
 });
 
 /* ---------- front desk (staff + admin) ---------- */

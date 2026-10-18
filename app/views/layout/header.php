@@ -10,7 +10,7 @@
 </head>
 <body>
 <header class="nav"><div class="container nav-in">
-  <a class="logo" href="<?= e(site_url('')) ?>"><i><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s7-6.5 7-12a7 7 0 10-14 0c0 5.5 7 12 7 12z" fill="#fff"/><circle cx="12" cy="10" r="3" fill="#0E7C86"/></svg></i>HOTEL<b>GO</b></a>
+  <a class="logo" href="<?= e(site_url('')) ?>"><i><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s7-6.5 7-12a7 7 0 10-14 0c0 5.5 7 12 7 12z" fill="#fff"/><circle cx="12" cy="10" r="3" fill="#0E7C86"/></svg></i><span>HOTEL<b>GO</b></span></a>
   <nav class="nav-links" aria-label="Main">
     <a class="link<?= nav_active('rooms') ?>" href="<?= e(site_url('rooms')) ?>">Rooms</a>
     <?php if ($_user): ?><a class="link<?= nav_active('my-bookings') ?>" href="<?= e(site_url('my-bookings')) ?>">My bookings</a><?php endif; ?>

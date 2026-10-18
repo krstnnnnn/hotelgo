@@ -116,7 +116,34 @@ class BookingController extends Controller
     public function show($ref)
     {
         $b = $this->mine($ref);
-        render('booking/show', ['b' => $b, 'can_cancel' => $this->BookingModel->can_cancel($b), 'title' => 'Booking ' . $ref]);
+        $latest = fn(string $ch) => q_one("SELECT * FROM notifications WHERE booking_id = ? AND channel = ? ORDER BY id DESC LIMIT 1", [$b['id'], $ch]);
+        render('booking/show', ['b' => $b, 'can_cancel' => $this->BookingModel->can_cancel($b), 'can_modify' => $b['status'] === 'confirmed' && $this->BookingModel->can_cancel($b),
+            'sms' => $latest('sms'), 'mail' => $latest('email'), 'title' => 'Booking ' . $ref]);
+    }
+    public function receipt($ref)
+    {
+        $b = $this->mine($ref);
+        if (!in_array($b['status'], ['confirmed', 'checked_in', 'checked_out'], true)) abort(404);
+        render('booking/receipt', ['b' => $b, 'pay' => q_one("SELECT * FROM payments WHERE booking_id = ? AND status IN ('paid','refunded') ORDER BY id DESC LIMIT 1", [$b['id']]), 'title' => 'Receipt ' . $ref]);
+    }
+    private function modifiable(string $ref): array
+    {
+        $b = $this->mine($ref);
+        if ($b['status'] !== 'confirmed' || !$this->BookingModel->can_cancel($b)) { flash('bad', 'This booking can no longer be changed online. Please contact the motel.'); go('booking/' . $ref); }
+        return $b;
+    }
+    public function modify_form($ref) { render('booking/modify', ['b' => $this->modifiable($ref), 'title' => 'Change booking']); }
+    public function modify($ref)
+    {
+        $b = $this->modifiable($ref);
+        $w = $this->BookingModel->window($b['stay_type'], post_str('date'), post_str('time', date('H:i', strtotime($b['start_at']))), (int) $b['hours']);
+        if (!$w) { flash('bad', 'Please choose a valid date and time (not in the past, within 60 days).'); go('booking/' . $ref . '/modify'); }
+        $res = $this->BookingModel->reschedule($b, $w);
+        if (!$res['ok']) { flash('bad', $res['error']); go('booking/' . $ref . '/modify'); }
+        audit('booking_rescheduled', $ref);
+        $this->NotificationModel->booking_rescheduled($this->BookingModel->find($ref));
+        flash('ok', 'Your booking was moved to the new time.');
+        go('booking/' . $ref);
     }
     public function cancel($ref)
     {

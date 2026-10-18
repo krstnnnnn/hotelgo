@@ -78,7 +78,7 @@ class BookingModel extends Model
         if (!$free) { db()->roll_back(); return ['ok' => false, 'error' => 'Sorry, that room type was just taken for your time. Please choose another time.']; }
         if ($user) {
             $pending = (int) q_val("SELECT COUNT(*) FROM bookings WHERE user_id = ? AND status = 'pending_payment' AND hold_expires_at > ?", [$user['id'], now_str()]);
-            if ($pending >= 20) { db()->roll_back(); return ['ok' => false, 'error' => 'You already have 3 unpaid bookings. Please pay or wait for them to expire.']; }
+            if ($pending >= 3) { db()->roll_back(); return ['ok' => false, 'error' => 'You already have 3 unpaid bookings. Please pay or wait for them to expire.']; }
         }
         $rate = $this->price($type, $stay, (int) $w['hours']);
         $fee = $source === 'walkin' ? 0.0 : (float) setting('booking_fee', '30');
@@ -130,6 +130,20 @@ class BookingModel extends Model
         q("UPDATE bookings SET status = 'cancelled', cancelled_at = ? WHERE id = ?", [now_str(), $b['id']]);
         q("UPDATE payments SET status = 'refunded', refunded_at = ? WHERE booking_id = ? AND status = 'paid'", [now_str(), $b['id']]);
         db()->commit();
+    }
+
+    /* ---- guest changes the date / time (same room type, same length, so the price stays the same) ---- */
+    public function reschedule(array $b, array $w): array
+    {
+        $type = q_one('SELECT cleaning_buffer_min FROM room_types WHERE id = ?', [(int) $b['room_type_id']]);
+        db()->transaction();
+        $free = $this->free_rooms((int) $b['room_type_id'], $w['start'], $w['end'], (int) $type['cleaning_buffer_min'], (int) $b['id'], true);
+        if (!$free) { db()->roll_back(); return ['ok' => false, 'error' => 'That time is not available for this room type. Please try another time.']; }
+        $room = (int) $free[0]['id'];
+        foreach ($free as $r) if ((int) $r['id'] === (int) $b['room_id']) $room = (int) $r['id'];      // keep the same room if it is free
+        q('UPDATE bookings SET start_at = ?, end_at = ?, room_id = ? WHERE id = ?', [$w['start'], $w['end'], $room, $b['id']]);
+        db()->commit();
+        return ['ok' => true];
     }
 
     /* ---- staff actions ---- */

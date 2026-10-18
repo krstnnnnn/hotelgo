@@ -10,7 +10,7 @@
 <body>
 <div class="admin">
 <aside class="sidebar" aria-label="Admin menu">
-  <a class="logo" href="<?= e(site_url('admin')) ?>">HOTEL<b>GO</b></a>
+  <a class="logo" href="<?= e(site_url('admin')) ?>"><span>HOTEL<b>GO</b></span></a>
   <a class="<?= nav_active('admin') ?>" href="<?= e(site_url('admin')) ?>">Dashboard</a>
   <a class="<?= nav_active('admin/reservations') ?>" href="<?= e(site_url('admin/reservations')) ?>">Reservations</a>
   <a class="<?= nav_active('admin/walkin') ?>" href="<?= e(site_url('admin/walkin')) ?>">Walk-in booking</a>

@@ -173,3 +173,53 @@ function search_form(array $p): string {
         . '<div><label for="guests">Guests</label><select id="guests" name="guests">' . $g . '</select></div>'
         . '<div></div><button class="btn btn-amber" type="submit">Check availability</button></div></form>';
 }
+
+/* ---------- absolute address (used inside the QR code) ---------- */
+function abs_url(string $path = ''): string {
+    $base = rtrim(env_get('APP_URL'), '/');
+    if ($base === '') {
+        $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (env_get('TRUST_PROXY') === '1' && ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+        $base = ($https ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost');
+    }
+    return $base . '/' . ltrim($path, '/');
+}
+
+/* ---------- QR code as an inline SVG picture (pure PHP, no internet needed) ---------- */
+function qr_svg(string $text, string $color = '#0B2233'): string {
+    require_once dirname(__DIR__) . '/libraries/qrcode.php';
+    $qr = QRCode::getMinimumQRCode($text, QR_ERROR_CORRECT_LEVEL_M);
+    $n = $qr->getModuleCount(); $path = '';
+    for ($r = 0; $r < $n; $r++) {
+        $c = 0;
+        while ($c < $n) {
+            if ($qr->isDark($r, $c)) { $s = $c; while ($c < $n && $qr->isDark($r, $c)) $c++; $path .= 'M' . $s . ' ' . $r . 'h' . ($c - $s) . 'v1h-' . ($c - $s) . 'z'; }
+            else $c++;
+        }
+    }
+    return '<svg viewBox="-2 -2 ' . ($n + 4) . ' ' . ($n + 4) . '" role="img" aria-label="QR code for this booking" shape-rendering="crispEdges"><path d="' . $path . '" fill="' . e($color) . '"/></svg>';
+}
+
+/* ---------- small icon set (inline SVG) ---------- */
+function icon(string $name, string $color = 'currentColor', int $size = 20): string {
+    $p = [
+        'wallet' => '<path d="M3 7a3 3 0 0 1 3-3h11v3"/><rect x="3" y="7" width="18" height="13" rx="3"/><path d="M16 13.5h2"/>',
+        'card' => '<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M3 10h18M7 15h4"/>',
+        'bank' => '<path d="M3 10 12 4l9 6M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18"/>',
+        'lock' => '<rect x="4" y="11" width="16" height="10" rx="3"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+        'user' => '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>',
+        'shield' => '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="m9 12 2 2 4-4"/>',
+        'bell' => '<path d="M6 17V11a6 6 0 0 1 12 0v6l2 2H4z"/><path d="M10 21h4"/>',
+        'calendar' => '<rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/>',
+        'message' => '<path d="M4 5h16v11H9l-5 4z"/>',
+        'mail' => '<rect x="3" y="5" width="18" height="14" rx="3"/><path d="m3 7 9 6 9-6"/>',
+        'check' => '<path d="m5 12 5 5 9-10"/>',
+    ][$name] ?? '';
+    return '<svg width="' . $size . '" height="' . $size . '" viewBox="0 0 24 24" fill="none" stroke="' . e($color) . '" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' . $p . '</svg>';
+}
+function time_options(string $selected = '19:00'): string {
+    $o = '';
+    for ($m = 0; $m < 1440; $m += 30) { $t = sprintf('%02d:%02d', intdiv($m, 60), $m % 60); $o .= '<option value="' . $t . '"' . ($t === $selected ? ' selected' : '') . '>' . date('g:i A', strtotime($t)) . '</option>'; }
+    return $o;
+}
+function pay_label(string $m): string { return ['ewallet' => 'E-wallet', 'card' => 'Card', 'bank' => 'Bank / OTC', 'cash' => 'Cash'][$m] ?? 'Online'; }
+function notice_label(string $s): string { return ['sent' => 'Delivered', 'logged' => 'Saved', 'failed' => 'Failed', 'retried' => 'Retried'][$s] ?? $s; }

@@ -1,0 +1,3 @@
+Copy everything inside this "hotelgo-update" folder into your hotelgo project folder and choose "Replace the files in the destination".
+Then: git add .  /  git commit -m "New ticket page and payment cards"  /  git push
+Render redeploys by itself.

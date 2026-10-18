@@ -30,3 +30,5 @@
     })();
   }
 })();
+// print buttons (the page has a strict security policy, so no inline "onclick")
+document.querySelectorAll('[data-print]').forEach(function (b) { b.addEventListener('click', function () { window.print(); }); });
