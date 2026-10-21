@@ -78,7 +78,8 @@ class BookingModel extends Model
         if (!$free) { db()->roll_back(); return ['ok' => false, 'error' => 'Sorry, that room type was just taken for your time. Please choose another time.']; }
         if ($user) {
             $pending = (int) q_val("SELECT COUNT(*) FROM bookings WHERE user_id = ? AND status = 'pending_payment' AND hold_expires_at > ?", [$user['id'], now_str()]);
-            if ($pending >= 1000) { db()->roll_back(); return ['ok' => false, 'error' => 'You already have 3 unpaid bookings. Please pay or wait for them to expire.']; }
+            $max = max(1, (int) env_get('MAX_UNPAID_BOOKINGS', '1000'));        // 1000 = no real limit (demo). Use 3 on a real site.
+            if ($pending >= $max) { db()->roll_back(); return ['ok' => false, 'error' => 'You already have ' . $max . ' unpaid bookings. Please pay or wait for them to expire.']; }
         }
         $rate = $this->price($type, $stay, (int) $w['hours']);
         $fee = $source === 'walkin' ? 0.0 : (float) setting('booking_fee', '30');
@@ -104,17 +105,49 @@ class BookingModel extends Model
         return q_all(self::SELECT . 'WHERE b.user_id = ? AND (' . $cond . ') ORDER BY b.start_at DESC LIMIT 100', [$userId, $now]);
     }
 
-    /* ---- payment finished: confirm the booking (only if the hold is still valid) ---- */
-    public function mark_paid(string $ref, string $method, string $provider, string $providerRef): ?array
+    /* ---- payment finished: confirm the booking. Returns ['status' => ..., 'booking' => ...]
+          status: confirmed | confirmed_late | already | duplicate | refund_needed | failed ---- */
+    public function mark_paid(string $ref, string $method, string $provider, string $providerRef, bool $allowLate = false): array
     {
         db()->transaction();
         $b = q_one('SELECT * FROM bookings WHERE booking_ref = ?' . lock_suffix(), [$ref]);
-        if (!$b || $b['status'] !== 'pending_payment' || $b['hold_expires_at'] < now_str()) { db()->roll_back(); return null; }
+        if (!$b) { db()->roll_back(); return ['status' => 'failed', 'booking' => null]; }
+        if (in_array($b['status'], ['confirmed', 'checked_in', 'checked_out'], true)) {
+            // paid before. A second, different payment is kept as an extra PAID payment so the admin can refund it.
+            if ($providerRef !== '' && (int) q_val('SELECT COUNT(*) FROM payments WHERE provider = ? AND provider_ref = ?', [$provider, $providerRef]) === 0) {
+                $this->add_payment($b, $method, $provider, $providerRef); db()->commit();
+                return ['status' => 'duplicate', 'booking' => $this->find($ref)];
+            }
+            db()->roll_back(); return ['status' => 'already', 'booking' => $this->find($ref)];
+        }
+        if ($b['status'] === 'pending_payment' && $b['hold_expires_at'] >= now_str()) {
+            $this->add_payment($b, $method, $provider, $providerRef);
+            q("UPDATE bookings SET status = 'confirmed', hold_expires_at = NULL, pay_method = ? WHERE id = ?", [$method, $b['id']]);
+            db()->commit();
+            return ['status' => 'confirmed', 'booking' => $this->find($ref)];
+        }
+        if (!$allowLate) { db()->roll_back(); return ['status' => 'failed', 'booking' => $this->find($ref)]; }
+        // LATE payment (guest paid after the 10-minute hold ended): try to still give the room, otherwise keep the money record for a refund
+        if (in_array($b['status'], ['pending_payment', 'expired'], true) && $b['end_at'] > now_str()) {
+            $type = q_one('SELECT cleaning_buffer_min FROM room_types WHERE id = ?', [(int) $b['room_type_id']]);
+            $free = $this->free_rooms((int) $b['room_type_id'], $b['start_at'], $b['end_at'], (int) $type['cleaning_buffer_min'], (int) $b['id'], true);
+            if ($free) {
+                $room = (int) $free[0]['id']; foreach ($free as $r) if ((int) $r['id'] === (int) $b['room_id']) $room = (int) $r['id'];
+                $this->add_payment($b, $method, $provider, $providerRef);
+                q("UPDATE bookings SET status = 'confirmed', room_id = ?, hold_expires_at = NULL, pay_method = ? WHERE id = ?", [$room, $method, $b['id']]);
+                db()->commit();
+                return ['status' => 'confirmed_late', 'booking' => $this->find($ref)];
+            }
+        }
+        $this->add_payment($b, $method, $provider, $providerRef);
+        q("UPDATE bookings SET status = 'cancelled', cancelled_at = ?, hold_expires_at = NULL WHERE id = ?", [now_str(), $b['id']]);
+        db()->commit();
+        return ['status' => 'refund_needed', 'booking' => $this->find($ref)];
+    }
+    private function add_payment(array $b, string $method, string $provider, string $providerRef): void
+    {
         insert_row('payments', ['booking_id' => $b['id'], 'txn_ref' => 'TXN-' . strtoupper(bin2hex(random_bytes(5))), 'method' => $method, 'provider' => $provider, 'provider_ref' => $providerRef,
             'amount' => $b['total'], 'status' => 'paid', 'created_at' => now_str(), 'paid_at' => now_str()]);
-        q("UPDATE bookings SET status = 'confirmed', hold_expires_at = NULL WHERE id = ?", [$b['id']]);
-        db()->commit();
-        return $this->find($ref);
     }
 
     /* ---- cancel (guests: only before the free-cancellation deadline; staff: any time) ---- */
@@ -128,8 +161,7 @@ class BookingModel extends Model
     {
         db()->transaction();
         q("UPDATE bookings SET status = 'cancelled', cancelled_at = ? WHERE id = ?", [now_str(), $b['id']]);
-        q("UPDATE payments SET status = 'refunded', refunded_at = ? WHERE booking_id = ? AND status = 'paid'", [now_str(), $b['id']]);
-        db()->commit();
+        db()->commit();          // the money side is handled by PaymentModel::refund_booking()
     }
 
     /* ---- guest changes the date / time (same room type, same length, so the price stays the same) ---- */

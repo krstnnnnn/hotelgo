@@ -1,0 +1,27 @@
+HOTELGO update: free email (Gmail), email sign-up codes, free PayMongo test mode, free map
+=======================================================================================
+STEP 1  Copy everything inside this "hotelgo-update" folder into your hotelgo project folder.
+        Choose "Replace the files in the destination".
+        (This does NOT touch your .env file. Your "unpaid bookings" limit stays at 1000.)
+
+STEP 2  Open app/config/config.php in VS Code. Press Ctrl+F and search:  frame_src
+        Change the line to:
+            'frame_src'   => ['https://www.google.com', 'https://www.openstreetmap.org'],
+        Save. (This lets the free OpenStreetMap map show on the ticket page.)
+
+STEP 3  Add these lines to your own .env file (and later to Render > Environment).
+        Nothing else is needed to keep working in demo mode:
+            EMAIL_PROVIDER=log
+            APPS_SCRIPT_URL=
+            APPS_SCRIPT_SECRET=
+            MAIL_FROM_NAME=HOTELGO
+
+STEP 4  Try it: in the terminal run   php -S localhost:8000 -t public   and open http://localhost:8000
+        Register a new guest. The code is shown on the screen (demo) until you do Step 6.
+
+STEP 5  git add .   /   git commit -m "Free email, email codes, PayMongo test mode"   /   git push
+        Wait until Render says Live.
+
+STEP 6  Follow Part 8 of HOTELGO_Step_by_Step_Guide.pdf:
+        A = free Gmail sender (needs docs/hotelgo-gmail-relay.gs from this folder)
+        B = free PayMongo TEST mode (optional; the sandbox payment still works without it)

@@ -52,8 +52,9 @@ class ManageController extends Controller
     }
     public function refund($id)
     {
-        if ($this->PaymentModel->refund((int) $id)) { audit('refund', 'payment #' . (int) $id); flash('ok', 'Payment marked as refunded and the booking was cancelled.'); }
-        else flash('bad', 'That payment cannot be refunded.');
+        [$ok, $msg] = $this->PaymentModel->refund((int) $id);
+        audit($ok ? 'refund' : 'refund_failed', 'payment #' . (int) $id);
+        flash($ok ? 'ok' : 'bad', $ok ? 'Payment refunded and the booking was cancelled.' : $msg);
         go('admin/payments');
     }
 
@@ -136,10 +137,11 @@ class ManageController extends Controller
     public function settings()
     {
         $integrations = [
-            ['Online payment gateway', env_get('PAYMENT_PROVIDER', 'mock') === 'paymongo' ? env_get('PAYMONGO_SECRET_KEY') !== '' : $this->PaymentModel->mock_allowed(), env_get('PAYMENT_PROVIDER', 'mock') === 'mock' ? 'Sandbox (simulation)' : 'PayMongo'],
-            ['SMS notification service', env_get('SMS_PROVIDER') === 'semaphore' && env_get('SMS_API_KEY') !== '', env_get('SMS_PROVIDER', 'log') === 'log' ? 'Log only (simulation)' : 'Semaphore'],
-            ['Google Maps API', env_get('GOOGLE_MAPS_KEY') !== '', env_get('GOOGLE_MAPS_KEY') !== '' ? 'Embedded map' : 'Link only'],
-            ['Email notification service', env_get('EMAIL_PROVIDER') === 'resend' && env_get('RESEND_API_KEY') !== '', env_get('EMAIL_PROVIDER', 'log') === 'log' ? 'Log only (simulation)' : 'Resend'],
+            ['Online payment gateway', env_get('PAYMENT_PROVIDER', 'mock') === 'paymongo' ? ($this->PaymentModel->key_mode() !== 'invalid' && env_get('PAYMONGO_WEBHOOK_SECRET') !== '') : $this->PaymentModel->mock_allowed(),
+                env_get('PAYMENT_PROVIDER', 'mock') === 'paymongo' ? 'PayMongo · ' . strtoupper($this->PaymentModel->key_mode()) . ' key · webhook secret ' . (env_get('PAYMONGO_WEBHOOK_SECRET') !== '' ? 'set' : 'MISSING') . ' · methods: ' . implode(', ', $this->PaymentModel->methods_for('')) : 'Sandbox (simulation)'],
+            ['SMS notification service (optional)', env_get('SMS_PROVIDER') === 'semaphore' && env_get('SMS_API_KEY') !== '', env_get('SMS_PROVIDER', 'log') === 'semaphore' ? 'Semaphore · real SMS (paid)' : 'Demo only: SMS messages are saved in Notifications, not sent (real SMS needs a paid provider)'],
+            ['Google Maps', true, env_get('GOOGLE_MAPS_KEY') !== '' ? 'Google Maps embed + directions' : 'Free map (OpenStreetMap) + "Get directions" opens Google Maps (no key needed)'],
+            ['Email notification service', $this->NotificationModel->email_enabled(), env_get('EMAIL_PROVIDER', 'log') === 'appsscript' ? 'Free Gmail relay (Google Apps Script) · sign-up codes are emailed' : (env_get('EMAIL_PROVIDER', 'log') === 'resend' ? 'Resend · from: ' . (env_get('MAIL_FROM') ?: 'MAIL_FROM is missing') : 'Demo only: emails are saved in Notifications, not sent')],
             ['Calendar (.ics file)', true, 'Built in – guests download a calendar file'],
         ];
         render_admin('admin/settings', ['integrations' => $integrations, 'keys' => ['motel_name', 'motel_address', 'motel_lat', 'motel_lng', 'booking_fee', 'hold_minutes', 'cancel_hours', 'overnight_start', 'overnight_end'], 'title' => 'Settings']);
@@ -153,5 +155,38 @@ class ManageController extends Controller
             if (q_val('SELECT COUNT(*) FROM settings WHERE skey = ?', [$k]) > 0) q('UPDATE settings SET svalue = ? WHERE skey = ?', [$v, $k]); else insert_row('settings', ['skey' => $k, 'svalue' => $v]);
         }
         audit('settings_saved'); flash('ok', 'Settings saved.'); go('admin/settings');
+    }
+
+    /* ---------------- "Send test" buttons (admin only, max 5 per 10 minutes) ---------------- */
+    private function test_allowed(string $action): bool
+    {
+        $n = (int) q_val('SELECT COUNT(*) FROM audit_logs WHERE user_id = ? AND action = ? AND created_at > ?', [current_user()['id'], $action, date('Y-m-d H:i:s', time() - 600)]);
+        if ($n >= 5) { flash('bad', 'Too many tests. Please wait a few minutes.'); return false; }
+        return true;
+    }
+    private function test_result(int $id): void
+    {
+        $n = q_one('SELECT status, error FROM notifications WHERE id = ?', [$id]);
+        if ($n['status'] === 'sent') flash('ok', 'Sent! Check the phone / inbox. (Provider accepted the message.)');
+        elseif ($n['status'] === 'logged') flash('warn', 'Simulation mode: the message was only saved in Notifications. Set the provider and API key in Render → Environment to send for real.');
+        else flash('bad', 'Failed: ' . $n['error']);
+    }
+    public function test_sms()
+    {
+        $m = normalize_mobile(post_str('mobile'));
+        if (!$m) { flash('bad', 'Enter a valid Philippine mobile number.'); go('admin/settings'); }
+        if (!$this->test_allowed('test_sms')) go('admin/settings');
+        audit('test_sms', mask_mobile($m));
+        $this->test_result($this->NotificationModel->send(null, (int) current_user()['id'], 'sms', $m, '', 'HOTELGO: this is a message from your admin settings page. SMS is working!'));
+        go('admin/settings');
+    }
+    public function test_email()
+    {
+        $e = strtolower(post_str('email'));
+        if (!filter_var($e, FILTER_VALIDATE_EMAIL)) { flash('bad', 'Enter a valid email address.'); go('admin/settings'); }
+        if (!$this->test_allowed('test_email')) go('admin/settings');
+        audit('test_email', mask_email($e));
+        $this->test_result($this->NotificationModel->send(null, (int) current_user()['id'], 'email', $e, 'HOTELGO email test', "Hello!\n\nThis is a test email from the HOTELGO admin settings page. Email is working.\n"));
+        go('admin/settings');
     }
 }

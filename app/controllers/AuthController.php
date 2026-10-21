@@ -82,14 +82,16 @@ class AuthController extends Controller
     private function send_code(array $u, string $purpose): void
     {
         $code = $this->UserModel->issue_code((int) $u['id'], $purpose);
-        $this->NotificationModel->code((int) $u['id'], $u['mobile'], $purpose, $code);
-        if (!is_production() || env_get('DEMO_SHOW_CODES') === '1') flash('info', 'DEMO MODE – your code is ' . $code . ' (this message is hidden on a real site).');
+        $this->NotificationModel->code((int) $u['id'], $u['email'], $purpose, $code);
+        // shown on screen only for demos: when DEMO_SHOW_CODES=1, or when running on your own computer and no real email is set up yet
+        if (env_get('DEMO_SHOW_CODES') === '1' || (!is_production() && !$this->NotificationModel->email_enabled())) flash('info', 'DEMO MODE – your code is ' . $code . ' (hidden on a real site).');
     }
 
     public function verify_form()
     {
         if (empty($_SESSION['pending_uid'])) go('login');
-        render('auth/verify', ['title' => 'Verify your number']);
+        $u = $this->UserModel->by_id((int) $_SESSION['pending_uid']);
+        render('auth/verify', ['email' => $u['email'] ?? '', 'title' => 'Verify your email']);
     }
     public function verify()
     {
@@ -125,7 +127,7 @@ class AuthController extends Controller
             $this->send_code($u, 'reset');
         }
         $_SESSION['reset_email'] = $email;
-        flash('ok', 'If that account exists, we sent a reset code to its mobile number.');   // same message either way
+        flash('ok', 'If that account exists, we sent a reset code to its email address.');   // same message either way
         go('reset');
     }
     public function reset_form() { render('auth/reset', ['title' => 'Reset password']); }

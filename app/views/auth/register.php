@@ -1,6 +1,6 @@
 <?php defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed'); ?>
 <div class="container section"><div class="card" style="max-width:520px;margin:0 auto">
-  <div class="eyebrow">Step 1 of 2 · Your details</div><h1 style="font-size:2rem">Create your account</h1><p class="mute">We will text you a 6-digit code to verify your mobile number.</p>
+  <div class="eyebrow">Step 1 of 2 · Your details</div><h1 style="font-size:2rem">Create your account</h1><p class="mute">We will email you a 6-digit code to verify your email address.</p>
   <form method="post" action="<?= e(site_url('register')) ?>" autocomplete="on"><?= csrf_input() ?>
     <div class="field"><label for="full_name">Full name</label><input id="full_name" name="full_name" required maxlength="120" value="<?= e($old['full_name'] ?? '') ?>" autocomplete="name"></div>
     <div class="field"><label for="mobile">Mobile number</label><input id="mobile" name="mobile" required maxlength="20" placeholder="09XX XXX XXXX" value="<?= e($old['mobile'] ?? '') ?>" autocomplete="tel"></div>

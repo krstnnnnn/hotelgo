@@ -6,6 +6,8 @@ class CsrfMiddleware
 {
     public function handle(Closure $next)
     {
+        // PayMongo's server calls this URL, so there is no browser token. It is protected by PayMongo's signature (WebhookController).
+        if (str_ends_with(trim((string) parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH), '/'), 'webhooks/paymongo')) return $next();
         if (in_array($_SERVER['REQUEST_METHOD'] ?? 'GET', ['POST', 'PUT', 'PATCH', 'DELETE'], true)) {
             $sent  = $_POST['_csrf'] ?? '';
             $known = $_SESSION['_csrf'] ?? '';

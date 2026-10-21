@@ -7,7 +7,7 @@ class AdminController extends Controller
     public function __construct()
     {
         parent::__construct();
-        foreach (['RoomModel', 'BookingModel', 'NotificationModel', 'UserModel'] as $m) $this->call->model($m);
+        foreach (['RoomModel', 'BookingModel', 'NotificationModel', 'UserModel', 'PaymentModel'] as $m) $this->call->model($m);
     }
     private function ref_ok(string $ref): void { if (!preg_match('/^HG-[A-Z0-9]{6}$/', $ref)) abort(404); }
 
@@ -62,7 +62,7 @@ class AdminController extends Controller
         if ($do === 'checkin') { $ok = $this->BookingModel->check_in((int) $b['id']); flash($ok ? 'ok' : 'bad', $ok ? 'Guest checked in.' : 'Only confirmed bookings can be checked in.'); }
         elseif ($do === 'checkout') { $ok = $this->BookingModel->check_out((int) $b['id']); flash($ok ? 'ok' : 'bad', $ok ? 'Guest checked out. Room is now being cleaned.' : 'Only checked-in guests can be checked out.'); }
         elseif ($do === 'cancel') {
-            if ($this->BookingModel->can_cancel($b, true)) { $this->BookingModel->cancel($b); $this->NotificationModel->booking_cancelled($b); flash('ok', 'Booking cancelled and payment marked as refunded.'); }
+            if ($this->BookingModel->can_cancel($b, true)) { $this->BookingModel->cancel($b); $ok = $this->PaymentModel->refund_booking($b); $this->NotificationModel->booking_cancelled($b); flash($ok ? 'ok' : 'warn', $ok ? 'Booking cancelled and payment refunded.' : 'Booking cancelled. The refund is still pending: open Payments to retry it.'); }
             else flash('bad', 'This booking cannot be cancelled.');
         }
         elseif ($do === 'resend') {

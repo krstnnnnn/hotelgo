@@ -16,6 +16,9 @@ $router->add_global_middleware('csrf');
 $router->get('/', 'HomeController::index');
 $router->get('/rooms', 'HomeController::rooms');
 
+/* ---------- PayMongo calls this by itself (no browser). Protected by PayMongo's signature, see WebhookController ---------- */
+$router->post('/webhooks/paymongo', 'WebhookController::paymongo');
+
 /* ---------- sign in / register / reset (only when NOT signed in) ---------- */
 $router->group(['middleware' => ['guest']], function ($router) {
     $router->get('/login', 'AuthController::login_form');
@@ -90,4 +93,6 @@ $router->group(['middleware' => ['admin']], function ($router) {
     $router->get('/admin/audit', 'ManageController::audit_log');
     $router->get('/admin/settings', 'ManageController::settings');
     $router->post('/admin/settings', 'ManageController::settings_save');
+    $router->post('/admin/settings/test-sms', 'ManageController::test_sms');
+    $router->post('/admin/settings/test-email', 'ManageController::test_email');
 });

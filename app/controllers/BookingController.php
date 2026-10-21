@@ -72,13 +72,16 @@ class BookingController extends Controller
     /* ---------------- step 2: payment ---------------- */
     public function pay($ref)
     {
-        $b = $this->mine($ref);
+        $this->mine($ref);
         $this->BookingModel->expire_holds();
         $b = $this->mine($ref);
         if ($b['status'] === 'confirmed') go('booking/' . $ref);
         if ($b['status'] !== 'pending_payment') { flash('bad', 'This booking is no longer open for payment.'); go('my-bookings'); }
         $url = $this->PaymentModel->start($b);
-        if (!$url) { flash('bad', 'Online payment is not available right now. Please contact the motel.'); go('my-bookings'); }
+        if (!$url) {
+            if ($this->PaymentModel->error !== '') audit('payment_start_failed', $this->PaymentModel->error);       // the owner can read the reason in the Audit log
+            flash('bad', 'Online payment is not available right now. Please try again in a moment or contact the motel.'); go('my-bookings');
+        }
         if ($this->PaymentModel->provider() === 'paymongo') { header('Location: ' . $url, true, 302); exit; }
         render('payment/sandbox', ['b' => $b, 'title' => 'Secure payment']);
     }
@@ -86,24 +89,28 @@ class BookingController extends Controller
     {
         $b = $this->mine($ref);
         if ($this->PaymentModel->provider() !== 'mock' || !$this->PaymentModel->mock_allowed()) abort(404);
-        $paid = $this->BookingModel->mark_paid($ref, $b['pay_method'] ?: 'ewallet', 'mock', 'SANDBOX');
-        if (!$paid) { flash('bad', 'Your room hold expired before payment. Please search again.'); go('rooms'); }
-        $this->after_paid($paid);
+        $this->finish_payment($this->BookingModel->mark_paid($ref, $b['pay_method'] ?: 'ewallet', 'mock', 'SANDBOX', false));
     }
-    public function pay_return($ref)            // PayMongo comes back here; we ask PayMongo if it is really paid
+    public function pay_return($ref)            // PayMongo sends the guest back here. We ask PayMongo (not the browser!) if it is really paid.
     {
         $b = $this->mine($ref);
-        if ($this->PaymentModel->provider() !== 'paymongo' || !$this->PaymentModel->paymongo_paid($b)) { flash('bad', 'We could not confirm your payment yet.'); go('my-bookings'); }
-        $paid = $this->BookingModel->mark_paid($ref, $b['pay_method'] ?: 'ewallet', 'paymongo', $b['pay_ref']);
-        if (!$paid) { flash('bad', 'This booking could not be confirmed. Please contact the motel with your reference ' . $ref . '.'); go('my-bookings'); }
-        $this->after_paid($paid);
+        if ($this->PaymentModel->provider() !== 'paymongo') abort(404);
+        $live = !empty($b['pay_ref']) ? $this->PaymentModel->session_get($b['pay_ref']) : null;
+        $payId = $live ? $this->PaymentModel->session_paid($live, $b) : null;
+        if (!$payId) { flash('warn', 'We have not received your payment yet. If you already paid, your booking is confirmed in a moment. Check My bookings.'); go('my-bookings'); }
+        $this->finish_payment($this->BookingModel->mark_paid($ref, $this->PaymentModel->method_from($live, (string) $b['pay_method']), 'paymongo', $payId, true));
     }
-    private function after_paid(array $b): void
+    private function finish_payment(array $r): void
     {
-        audit('payment_paid', $b['booking_ref']);
-        $this->NotificationModel->booking_confirmed($b);
-        flash('ok', 'Payment received. Your room has been assigned!');
-        go('booking/' . $b['booking_ref']);
+        $b = $r['booking']; $st = $r['status'];
+        if ($st === 'confirmed' || $st === 'confirmed_late') {
+            audit('payment_paid', $b['booking_ref']);
+            $this->NotificationModel->booking_confirmed($b);
+            flash('ok', 'Payment received. Your room has been assigned!'); go('booking/' . $b['booking_ref']);
+        }
+        if ($st === 'already' || $st === 'duplicate') go('booking/' . $b['booking_ref']);
+        if ($st === 'refund_needed') { flash('bad', 'Your payment arrived after the room hold ended and the room is no longer free. The motel will refund you. Reference ' . $b['booking_ref'] . '.'); go('my-bookings'); }
+        flash('bad', 'Your room hold expired before payment. Please search again.'); go('rooms');
     }
 
     /* ---------------- my bookings ---------------- */
@@ -150,21 +157,19 @@ class BookingController extends Controller
         $b = $this->mine($ref);
         if (!$this->BookingModel->can_cancel($b)) { flash('bad', 'This booking can no longer be cancelled online. Please contact the motel.'); go('booking/' . $ref); }
         $this->BookingModel->cancel($b);
+        $refunded = $this->PaymentModel->refund_booking($b);
         audit('booking_cancelled', $ref);
         if ($b['status'] === 'confirmed') $this->NotificationModel->booking_cancelled($b);
-        flash('ok', 'Booking ' . $ref . ' was cancelled.');
+        flash($refunded ? 'ok' : 'warn', $refunded ? 'Booking ' . $ref . ' was cancelled.' : 'Booking ' . $ref . ' was cancelled. Your refund is being processed by the motel.');
         go('my-bookings');
     }
     public function ics($ref)
     {
         $b = $this->mine($ref);
         if ($b['status'] !== 'confirmed' && $b['status'] !== 'checked_in') abort(404);
-        $esc = fn($s) => preg_replace('/([,;\\\\])/', '\\\\$1', str_replace(["\r", "\n"], ' ', (string) $s));
-        $utc = fn($s) => gmdate('Ymd\THis\Z', strtotime($s));
         header('Content-Type: text/calendar; charset=utf-8');
         header('Content-Disposition: attachment; filename="hotelgo-' . $ref . '.ics"');
-        echo "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//HOTELGO//EN\r\nBEGIN:VEVENT\r\nUID:" . $ref . "@hotelgo\r\nDTSTAMP:" . gmdate('Ymd\THis\Z') . "\r\nDTSTART:" . $utc($b['start_at']) . "\r\nDTEND:" . $utc($b['end_at']) . "\r\n";
-        echo 'SUMMARY:' . $esc('HOTELGO · Room ' . $b['room_no']) . "\r\nLOCATION:" . $esc(setting('motel_name') . ', ' . setting('motel_address')) . "\r\nBEGIN:VALARM\r\nTRIGGER:-PT30M\r\nACTION:DISPLAY\r\nDESCRIPTION:Check-in in 30 minutes\r\nEND:VALARM\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+        echo ics_content($b);
         exit;
     }
 }

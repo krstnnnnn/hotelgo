@@ -375,7 +375,7 @@ $config['security_headers'] = [
     'font_src'    => ['https://fonts.gstatic.com'],
     'img_src'     => [],
     'connect_src' => [],
-    'frame_src'   => ['https://www.google.com'],
+    'frame_src'   => ['https://www.google.com', 'https://www.openstreetmap.org'],
     
     // ── CSP rollout ──
     'csp_report_only' => false,

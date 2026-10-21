@@ -135,11 +135,11 @@ function normalize_mobile(string $m): ?string {
 function mask_mobile(?string $m): string { return $m && strlen($m) > 6 ? substr($m, 0, 6) . ' ••• ' . substr($m, -4) : ''; }
 function mask_email(?string $m): string { if (!$m || !str_contains($m, '@')) return ''; [$a, $b] = explode('@', $m, 2); return substr($a, 0, 2) . '•••@' . $b; }
 function status_class(string $s): string {
-    return match ($s) { 'confirmed', 'paid', 'delivered', 'sent', 'active' => 'ok', 'pending_payment', 'pending', 'logged', 'maintenance' => 'warn', 'checked_in' => 'info', 'failed' => 'bad', default => 'gray' };
+    return match ($s) { 'confirmed', 'paid', 'delivered', 'sent', 'active' => 'ok', 'pending_payment', 'pending', 'logged', 'maintenance', 'refund_pending' => 'warn', 'checked_in' => 'info', 'failed' => 'bad', default => 'gray' };
 }
 function stay_label(array $b): string { return $b['stay_type'] === 'overnight' ? 'Overnight' : 'Hourly · ' . (int) $b['hours'] . ' hrs'; }
 function csv_safe($v): string { $v = (string) $v; return preg_match('/^[=+\-@\t\r]/', $v) ? "'" . $v : $v; }   // stops CSV formula injection
-function maps_link(): string { return 'https://www.google.com/maps/search/?api=1&query=' . rawurlencode(setting('motel_lat', '13.5188') . ',' . setting('motel_lng', '120.9647')); }
+function maps_link(): string { return 'https://www.google.com/maps/dir/?api=1&destination=' . rawurlencode(setting('motel_lat', '13.5188') . ',' . setting('motel_lng', '120.9647')); }   // opens turn-by-turn directions
 
 /* ---------- tiny HTTP helper for the payment / SMS / email providers ---------- */
 function http_json(string $method, string $url, array $headers = [], ?array $body = null): array {
@@ -148,7 +148,7 @@ function http_json(string $method, string $url, array $headers = [], ?array $bod
         CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 15, CURLOPT_SSL_VERIFYPEER => true, CURLOPT_SSL_VERIFYHOST => 2];
     if ($body !== null) $opt[CURLOPT_POSTFIELDS] = json_encode($body);
     curl_setopt_array($ch, $opt);
-    $res = curl_exec($ch); $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+    $res = curl_exec($ch); $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
     return [$code, json_decode((string) $res, true) ?: []];
 }
 
@@ -222,4 +222,36 @@ function time_options(string $selected = '19:00'): string {
     return $o;
 }
 function pay_label(string $m): string { return ['ewallet' => 'E-wallet', 'card' => 'Card', 'bank' => 'Bank / OTC', 'cash' => 'Cash'][$m] ?? 'Online'; }
-function notice_label(string $s): string { return ['sent' => 'Delivered', 'logged' => 'Saved', 'failed' => 'Failed', 'retried' => 'Retried'][$s] ?? $s; }
+function notice_label(string $s): string { return ['sent' => 'Sent', 'logged' => 'Demo', 'failed' => 'Failed', 'retried' => 'Retried'][$s] ?? $s; }
+
+/* ---------- plain HTTP request (used for SMS + email providers). Returns [http code, body text, error text] ---------- */
+function http_request(string $method, string $url, array $headers = [], ?string $body = null, int $timeout = 15, bool $follow = false): array {
+    if (!function_exists('curl_init')) return [0, '', 'The PHP cURL extension is not installed on this server.'];
+    $ch = curl_init($url);
+    $opt = [CURLOPT_HTTPHEADER => $headers, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => $timeout, CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_SSL_VERIFYPEER => true, CURLOPT_SSL_VERIFYHOST => 2, CURLOPT_FOLLOWLOCATION => $follow, CURLOPT_MAXREDIRS => 4, CURLOPT_USERAGENT => 'HOTELGO/1.0'];
+    if ($follow) $opt[CURLOPT_REDIR_PROTOCOLS] = CURLPROTO_HTTPS;                    // only follow redirects to https
+    if ($method === 'POST') $opt[CURLOPT_POST] = true; else $opt[CURLOPT_CUSTOMREQUEST] = $method;   // CURLOPT_POST lets a redirect turn into a GET (Google Apps Script needs this)
+    if ($body !== null) $opt[CURLOPT_POSTFIELDS] = $body;
+    $ca = env_get('CURL_CA_BUNDLE'); if ($ca !== '' && is_file($ca)) $opt[CURLOPT_CAINFO] = $ca;   // only needed on some Windows setups
+    curl_setopt_array($ch, $opt);
+    $res = curl_exec($ch); $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE); $err = curl_error($ch);
+    return [$code, (string) $res, $err];
+}
+
+/* Semaphore wants 09XXXXXXXXX (we store +639XXXXXXXXX) */
+function to_local_mobile(string $m): string { $d = preg_replace('/\D/', '', $m); return str_starts_with($d, '63') ? '0' . substr($d, 2) : $d; }
+
+/* The calendar file (.ics): downloaded on the ticket page AND attached to the confirmation email */
+function ics_content(array $b): string {
+    $esc = fn($s) => preg_replace('/([,;\\\\])/', '\\\\$1', str_replace(["\r", "\n"], ' ', (string) $s));
+    $utc = fn($s) => gmdate('Ymd\\THis\\Z', strtotime($s));
+    return "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//HOTELGO//EN\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\nBEGIN:VEVENT\r\nUID:" . $b['booking_ref'] . "@hotelgo\r\nDTSTAMP:" . gmdate('Ymd\\THis\\Z') . "\r\nSEQUENCE:" . max(0, intdiv(time() - 1700000000, 60)) . "\r\nDTSTART:" . $utc($b['start_at']) . "\r\nDTEND:" . $utc($b['end_at']) . "\r\nSTATUS:CONFIRMED\r\nDESCRIPTION:" . $esc('Booking ' . $b['booking_ref'] . '. Show your reference and a valid ID at check-in.') . "\r\n"
+        . 'SUMMARY:' . $esc('HOTELGO · Room ' . $b['room_no']) . "\r\nLOCATION:" . $esc(setting('motel_name') . ', ' . setting('motel_address')) . "\r\nBEGIN:VALARM\r\nTRIGGER:-PT30M\r\nACTION:DISPLAY\r\nDESCRIPTION:Check-in in 30 minutes\r\nEND:VALARM\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+}
+
+/* Free map (OpenStreetMap) used when there is no Google Maps key */
+function osm_embed_url(): string {
+    $lat = (float) setting('motel_lat', '13.5188'); $lng = (float) setting('motel_lng', '120.9647'); $d = 0.004;
+    return 'https://www.openstreetmap.org/export/embed.html?bbox=' . rawurlencode(($lng - $d) . ',' . ($lat - $d) . ',' . ($lng + $d) . ',' . ($lat + $d)) . '&layer=mapnik&marker=' . rawurlencode($lat . ',' . $lng);
+}
