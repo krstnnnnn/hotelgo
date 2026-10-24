@@ -1,47 +1,141 @@
 <?php
 defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 
+/*
+| The physical rooms (101, 102 ...) and the live room board. Table: rooms.
+| Create / read / update / delete. Prices and room types live in RoomTypeModel.
+*/
 class RoomModel extends Model
 {
     protected $table = 'rooms';
-    protected $primary_key = 'id';
 
-    public function types(bool $onlyActive = true): array
-    {
-        return q_all('SELECT * FROM room_types ' . ($onlyActive ? 'WHERE is_active = 1 ' : '') . 'ORDER BY price_3h');
-    }
-    public function type(int $id): ?array { return q_one('SELECT * FROM room_types WHERE id = ?', [$id]); }
+    const STATUSES = ['active', 'maintenance'];
+
+    /* ---------------- read ---------------- */
     public function rooms(): array
     {
-        return q_all('SELECT r.*, t.name AS type_name FROM rooms r JOIN room_types t ON t.id = r.room_type_id ORDER BY r.room_no');
+        return $this->db->table('rooms r')
+            ->select('r.id, r.room_no, r.room_type_id, r.floor, r.status, t.name AS type_name')
+            ->join('room_types t', 't.id = r.room_type_id')
+            ->order_by('r.room_no', 'ASC')
+            ->get_all();
     }
-    public function save_type(?int $id, array $d): void
+    public function room(int $id): ?array
     {
-        $cols = ['name', 'description', 'max_guests', 'amenities', 'price_3h', 'price_6h', 'price_12h', 'price_overnight', 'cleaning_buffer_min', 'is_active'];
-        $vals = []; foreach ($cols as $c) $vals[] = $d[$c];
-        if ($id) { q('UPDATE room_types SET ' . implode(' = ?, ', $cols) . ' = ? WHERE id = ?', array_merge($vals, [$id])); }
-        else { insert_row('room_types', array_combine($cols, $vals)); }
+        return $this->db->table('rooms r')
+            ->select('r.id, r.room_no, r.room_type_id, r.floor, r.status, t.name AS type_name')
+            ->join('room_types t', 't.id = r.room_type_id')
+            ->where('r.id', $id)->get() ?: null;
     }
-    public function add_room(string $no, int $typeId, int $floor): void { insert_row('rooms', ['room_no' => $no, 'room_type_id' => $typeId, 'floor' => $floor, 'status' => 'active']); }
-    public function set_room_status(int $id, string $status): void { q('UPDATE rooms SET status = ? WHERE id = ?', [$status, $id]); }
+    /* Rooms of one type that can be sold (not under maintenance) */
+    public function active_in_type(int $typeId): array
+    {
+        return $this->db->table($this->table)->select('id, room_no')
+            ->where('room_type_id', $typeId)->where('status', 'active')
+            ->order_by('room_no', 'ASC')->get_all();
+    }
+    public function room_no_taken(string $roomNo, int $exceptId = 0): bool
+    {
+        $this->db->table($this->table)->where('room_no', $roomNo);
+        if ($exceptId > 0) {
+            $this->db->where('id', '<>', $exceptId);
+        }
+        return $this->db->count() > 0;
+    }
 
-    /* Live board: available / occupied / reserved / cleaning / maintenance */
+    /* Live board: available / occupied / reserved / cleaning / maintenance (3 queries for all rooms) */
     public function board(): array
     {
-        $now = now_str(); $out = [];
+        $now   = now_str();
+        $soon  = date('Y-m-d H:i:s', time() + 7200);
+        $ago   = date('Y-m-d H:i:s', time() - 900);
+
+        $occupied = $reserved = $cleaning = [];
+        foreach ($this->db->table('bookings')->select('room_id, end_at')->where('status', 'checked_in')->order_by('end_at', 'DESC')->get_all() as $b) {
+            $occupied[(int) $b['room_id']] ??= $b;
+        }
+        foreach ($this->db->table('bookings')->select('room_id, start_at')->where('status', 'confirmed')->where('end_at', '>', $now)->where('start_at', '<=', $soon)->order_by('start_at', 'ASC')->get_all() as $b) {
+            $reserved[(int) $b['room_id']] ??= $b;
+        }
+        foreach ($this->db->table('bookings')->select('room_id')->where('status', 'checked_out')->where('checked_out_at', '>', $ago)->get_all() as $b) {
+            $cleaning[(int) $b['room_id']] = true;
+        }
+
+        $out = [];
         foreach ($this->rooms() as $r) {
-            $state = 'available'; $note = 'Ready';
-            if ($r['status'] !== 'active') { $state = 'maintenance'; $note = 'Under maintenance'; }
-            else {
-                $in = q_one("SELECT end_at FROM bookings WHERE room_id = ? AND status = 'checked_in' ORDER BY end_at DESC LIMIT 1", [$r['id']]);
-                $res = q_one("SELECT start_at FROM bookings WHERE room_id = ? AND status = 'confirmed' AND end_at > ? AND start_at <= ? ORDER BY start_at LIMIT 1", [$r['id'], $now, date('Y-m-d H:i:s', time() + 7200)]);
-                $clean = q_one("SELECT checked_out_at FROM bookings WHERE room_id = ? AND status = 'checked_out' AND checked_out_at > ? LIMIT 1", [$r['id'], date('Y-m-d H:i:s', time() - 900)]);
-                if ($in) { $state = 'occupied'; $note = 'until ' . fmt_dt($in['end_at'], 'g:i A'); }
-                elseif ($res) { $state = 'reserved'; $note = 'arrives ' . fmt_dt($res['start_at'], 'g:i A'); }
-                elseif ($clean) { $state = 'cleaning'; $note = 'Cleaning'; }
+            $id = (int) $r['id'];
+            if ($r['status'] !== 'active') {
+                [$state, $note] = ['maintenance', 'Under maintenance'];
+            } elseif (isset($occupied[$id])) {
+                [$state, $note] = ['occupied', 'until ' . fmt_dt($occupied[$id]['end_at'], 'g:i A')];
+            } elseif (isset($reserved[$id])) {
+                [$state, $note] = ['reserved', 'arrives ' . fmt_dt($reserved[$id]['start_at'], 'g:i A')];
+            } elseif (isset($cleaning[$id])) {
+                [$state, $note] = ['cleaning', 'Cleaning'];
+            } else {
+                [$state, $note] = ['available', 'Ready'];
             }
             $out[] = $r + ['state' => $state, 'note' => $note];
         }
         return $out;
+    }
+
+
+    /* Numbers for the dashboard from a board: how many rooms in each state and the occupancy percentage */
+    public function summary(array $board): array
+    {
+        $count = array_count_values(array_column($board, 'state'));
+        $total = count($board) ?: 1;
+        return ['count' => $count, 'total' => $total, 'occupancy' => (int) round((($count['occupied'] ?? 0) + ($count['reserved'] ?? 0)) / $total * 100)];
+    }
+
+    /* Checks form / API input for a room. Returns [cleaned columns, ''] or [null, reason]. */
+    public function clean_room(array $in, int $exceptId = 0): array
+    {
+        $no     = trim((string) ($in['room_no'] ?? ''));
+        $typeId = (int) ($in['room_type_id'] ?? 0);
+        $status = (string) ($in['status'] ?? 'active');
+        if (!preg_match('/^[A-Za-z0-9\-]{1,10}$/', $no) || $this->room_no_taken($no, $exceptId)) {
+            return [null, 'Room number is invalid or already exists.'];
+        }
+        if (!$this->call->model('RoomTypeModel')->type($typeId)) {
+            return [null, 'Choose a room type.'];
+        }
+        if (!in_array($status, self::STATUSES, true)) {
+            return [null, 'Invalid status.'];
+        }
+        return [['room_no' => $no, 'room_type_id' => $typeId, 'floor' => max(1, min(50, (int) ($in['floor'] ?? 1))), 'status' => $status], ''];
+    }
+
+    /* ---------------- create / update ---------------- */
+    public function add_room(string $roomNo, int $typeId, int $floor): int
+    {
+        return (int) $this->insert(['room_no' => $roomNo, 'room_type_id' => $typeId, 'floor' => $floor, 'status' => 'active']);
+    }
+    /* $data may hold room_no, room_type_id, floor, status */
+    public function save_room(int $id, array $data): void
+    {
+        $row = array_intersect_key($data, array_flip(['room_no', 'room_type_id', 'floor', 'status']));
+        if ($row) {
+            $this->update($id, $row);
+        }
+    }
+    public function set_status(int $id, string $status): void
+    {
+        $this->update($id, ['status' => $status]);
+    }
+
+    /* ---------------- delete ---------------- */
+    /* A room that has bookings is kept (set it to maintenance instead). Returns [ok, reason]. */
+    public function remove(int $id): array
+    {
+        if (!$this->room($id)) {
+            return [false, 'Room not found.'];
+        }
+        if ($this->db->table('bookings')->where('room_id', $id)->count() > 0) {
+            return [false, 'This room has bookings in the history. Set it to maintenance instead of deleting it.'];
+        }
+        $this->delete($id);
+        return [true, 'Room deleted.'];
     }
 }

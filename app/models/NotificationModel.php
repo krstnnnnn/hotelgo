@@ -2,114 +2,69 @@
 defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 
 /*
-| Email (+ optional SMS).
-|   EMAIL_PROVIDER=appsscript -> FREE: your own Gmail through a small Google Apps Script web app (works on Render free, no domain needed)
-|   EMAIL_PROVIDER=resend     -> Resend (free plan, but you need your own verified domain to email other people)
-|   SMS_PROVIDER=semaphore    -> real SMS through Semaphore (paid, optional; off by default)
-|   anything else             -> the message is only SAVED in the Notifications page ("logged" = demo, nothing is sent)
-| Sign-up / password-reset codes are sent by EMAIL (no SMS needed).
-| A failed SMS or email NEVER stops a booking. It is saved with status "failed" and the reason.
+| Everything the system says to guests: SMS (optional, paid) and email (free Gmail relay). Table: notifications.
+| Every message is saved here with its status: sent / logged (demo, nothing was sent) / failed / retried.
+| Sending is done by the library app/libraries/Messenger.php. A failed SMS or email NEVER stops a booking.
+| Sign-up and password-reset codes go to the guest's EMAIL (free). No SMS needed.
 */
 class NotificationModel extends Model
 {
     protected $table = 'notifications';
 
-    /* =============== Semaphore (SMS) =============== */
-    public function semaphore_request(string $to, string $message, ?string $otpCode = null): array
+    private function messenger()
     {
-        $params = ['apikey' => env_get('SMS_API_KEY'), 'number' => to_local_mobile($to), 'message' => $message];
-        if (env_get('SMS_SENDER') !== '') $params['sendername'] = env_get('SMS_SENDER');      // optional: Semaphore uses your default sender name when left out
-        $route = 'messages';
-        if ($otpCode !== null) {                                                               // OTP route: our own code is passed in "code", {otp} marks where it goes
-            $route = 'otp'; $params['code'] = $otpCode; $params['message'] = str_replace($otpCode, '{otp}', $message);
-        }
-        return ['url' => 'https://api.semaphore.co/api/v4/' . $route, 'headers' => ['Content-Type: application/x-www-form-urlencoded'], 'body' => http_build_query($params)];
+        return $this->call->library('messenger');
     }
-    /* returns [status, provider message id, error text] */
-    public function semaphore_parse(int $http, string $body): array
-    {
-        $j = json_decode($body, true);
-        if ($http === 429) return ['failed', null, 'Semaphore rate limit reached. Try again in a minute.'];
-        if ($http >= 200 && $http < 300 && is_array($j) && isset($j[0]['message_id'])) {
-            foreach ($j as $m) {
-                $st = strtolower((string) ($m['status'] ?? ''));
-                if ($st === 'failed' || $st === 'refunded') return ['failed', (string) $m['message_id'], 'Semaphore marked the message as ' . $st . '.'];
-            }
-            return ['sent', (string) $j[0]['message_id'], null];
-        }
-        return ['failed', null, mb_substr('Semaphore error (HTTP ' . $http . '): ' . trim(is_array($j) ? json_encode($j) : $body), 0, 240)];
-    }
-
-    /* =============== Google Apps Script relay (free email from your own Gmail) =============== */
-    public function appsscript_request(string $to, string $subject, string $text, string $html = '', array $attachments = []): array
-    {
-        $files = [];
-        foreach ($attachments as $a) $files[] = ['filename' => $a['filename'], 'mime' => $a['mime'] ?? 'application/octet-stream', 'content' => $a['content']];
-        $payload = ['secret' => env_get('APPS_SCRIPT_SECRET'), 'to' => $to, 'subject' => $subject, 'text' => $text, 'html' => $html, 'attachments' => $files, 'fromName' => env_get('MAIL_FROM_NAME', 'HOTELGO')];
-        return ['url' => env_get('APPS_SCRIPT_URL'), 'headers' => ['Content-Type: application/json'], 'body' => json_encode($payload)];
-    }
-    public function appsscript_parse(int $http, string $body): array
-    {
-        $j = json_decode($body, true);
-        if (is_array($j) && !empty($j['ok'])) return ['sent', null, null];
-        if (is_array($j)) return ['failed', null, mb_substr('Gmail relay: ' . ($j['error'] ?? 'unknown error'), 0, 240)];
-        return ['failed', null, 'The Google Apps Script did not answer correctly (HTTP ' . $http . '). Check APPS_SCRIPT_URL and that "Who has access" is set to Anyone.'];
-    }
-
-    /* =============== Resend (email) =============== */
-    public function resend_request(string $to, string $subject, string $text, string $html = '', array $attachments = []): array
-    {
-        $from = env_get('MAIL_FROM');
-        if ($from !== '' && !str_contains($from, '<')) $from = env_get('MAIL_FROM_NAME', 'HOTELGO') . ' <' . $from . '>';
-        $payload = ['from' => $from, 'to' => [$to], 'subject' => $subject, 'text' => $text];
-        if ($html !== '') $payload['html'] = $html;
-        if ($attachments) $payload['attachments'] = $attachments;
-        return ['url' => 'https://api.resend.com/emails', 'headers' => ['Authorization: Bearer ' . env_get('RESEND_API_KEY'), 'Content-Type: application/json', 'Accept: application/json'], 'body' => json_encode($payload)];
-    }
-    public function resend_parse(int $http, string $body): array
-    {
-        $j = json_decode($body, true);
-        if ($http >= 200 && $http < 300 && !empty($j['id'])) return ['sent', (string) $j['id'], null];
-        $msg = is_array($j) ? (($j['message'] ?? '') ?: json_encode($j)) : $body;
-        return ['failed', null, mb_substr('Resend error (HTTP ' . $http . '): ' . trim($msg), 0, 240)];
-    }
-
     public function email_enabled(): bool
     {
-        return (env_get('EMAIL_PROVIDER') === 'appsscript' && env_get('APPS_SCRIPT_URL') !== '' && env_get('APPS_SCRIPT_SECRET') !== '')
-            || (env_get('EMAIL_PROVIDER') === 'resend' && env_get('RESEND_API_KEY') !== '' && env_get('MAIL_FROM') !== '');
+        return $this->messenger()->email_enabled();
     }
 
-    /* =============== send one message (returns the id of the saved notification) =============== */
+    /* ===================================== read / delete ===================================== */
+    public function recent(int $limit = 200): array
+    {
+        return $this->db->table($this->table)->order_by('id', 'DESC')->limit($limit)->get_all();
+    }
+    public function for_booking(int $bookingId): array
+    {
+        return $this->db->table($this->table)->where('booking_id', $bookingId)->order_by('id', 'DESC')->get_all();
+    }
+    /* The newest message of one channel (sms / email) for a booking */
+    public function latest(int $bookingId, string $channel): ?array
+    {
+        return $this->db->table($this->table)->where('booking_id', $bookingId)->where('channel', $channel)->order_by('id', 'DESC')->limit(1)->get() ?: null;
+    }
+    public function remove(int $id): bool
+    {
+        return $this->delete($id) > 0;
+    }
+
+    /* ===================================== send one message (returns the id of the saved row) ===================================== */
     public function send(?int $bookingId, ?int $userId, string $channel, string $to, string $subject, string $message, array $opts = []): int
     {
-        $status = 'logged'; $error = null; $ref = null; $req = null; $parse = null; $follow = false;
-        try {
-            if ($channel === 'sms' && env_get('SMS_PROVIDER') === 'semaphore' && env_get('SMS_API_KEY') !== '') {
-                $sendText = (stripos(ltrim($message), 'test') === 0) ? 'HOTELGO: ' . $message : $message;    // Semaphore silently drops messages that start with "TEST"
-                $otp = (isset($opts['otp_code']) && env_get('SMS_OTP_ROUTE', 'messages') === 'otp') ? (string) $opts['otp_code'] : null;
-                $req = $this->semaphore_request($to, $sendText, $otp); $parse = 'semaphore_parse';
-            } elseif ($channel === 'email' && env_get('EMAIL_PROVIDER') === 'appsscript' && env_get('APPS_SCRIPT_URL') !== '' && env_get('APPS_SCRIPT_SECRET') !== '') {
-                if (!str_starts_with(env_get('APPS_SCRIPT_URL'), 'https://script.google.com/')) throw new RuntimeException('APPS_SCRIPT_URL must start with https://script.google.com/');
-                $req = $this->appsscript_request($to, $subject, $message, $opts['html'] ?? '', $opts['attachments'] ?? []); $parse = 'appsscript_parse'; $follow = true;
-            } elseif ($channel === 'email' && env_get('EMAIL_PROVIDER') === 'resend' && env_get('RESEND_API_KEY') !== '') {
-                if (env_get('MAIL_FROM') === '') throw new RuntimeException('MAIL_FROM is not set (for testing you can use onboarding@resend.dev).');
-                $req = $this->resend_request($to, $subject, $message, $opts['html'] ?? '', $opts['attachments'] ?? []); $parse = 'resend_parse';
-            }
-            if ($req) {
-                [$http, $res, $err] = http_request('POST', $req['url'], $req['headers'], $req['body'], 25, $follow);
-                if ($err !== '') {
-                    $status = 'failed';
-                    $error = mb_substr($err . (stripos($err, 'certificate') !== false ? ' (set CURL_CA_BUNDLE, see the guide)' : ''), 0, 240);
-                } else { [$status, $ref, $error] = $this->$parse($http, $res); }
-            }
-        } catch (Throwable $e) { $status = 'failed'; $error = mb_substr($e->getMessage(), 0, 240); }
-        return insert_row('notifications', ['booking_id' => $bookingId, 'user_id' => $userId, 'channel' => $channel, 'recipient' => $to, 'subject' => $subject, 'message' => $message,
-            'status' => $status, 'error' => $error, 'provider_ref' => $ref, 'created_at' => now_str()]);
+        [$status, $ref, $error] = $this->messenger()->deliver($channel, $to, $subject, $message, $opts);
+        return (int) $this->insert([
+            'booking_id' => $bookingId, 'user_id' => $userId, 'channel' => $channel, 'recipient' => $to, 'subject' => $subject,
+            'message' => $message, 'status' => $status, 'error' => $error, 'provider_ref' => $ref, 'created_at' => now_str(),
+        ]);
+    }
+    /* Try a failed message again */
+    public function retry(int $id): bool
+    {
+        $n = $this->db->table($this->table)->where('id', $id)->where('status', 'failed')->get();
+        if (!$n) {
+            return false;
+        }
+        $this->send($n['booking_id'] ? (int) $n['booking_id'] : null, $n['user_id'] ? (int) $n['user_id'] : null, (string) $n['channel'], (string) $n['recipient'], (string) $n['subject'], (string) $n['message']);
+        $this->update($id, ['status' => 'retried']);
+        return true;
     }
 
-    /* =============== the messages the system sends =============== */
-    private function uid(array $b): ?int { return $b['user_id'] ? (int) $b['user_id'] : null; }
+    /* ===================================== the messages the system sends ===================================== */
+    private function uid(array $b): ?int
+    {
+        return $b['user_id'] ? (int) $b['user_id'] : null;
+    }
 
     public function booking_confirmed(array $b): void
     {

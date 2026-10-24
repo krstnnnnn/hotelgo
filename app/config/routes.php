@@ -15,6 +15,10 @@ $router->add_global_middleware('csrf');
 /* ---------- public pages ---------- */
 $router->get('/', 'HomeController::index');
 $router->get('/rooms', 'HomeController::rooms');
+$router->get('/terms', 'HomeController::terms');
+$router->get('/privacy', 'HomeController::privacy');
+$router->get('/cancellation-policy', 'HomeController::cancellation');
+$router->get('/house-rules', 'HomeController::house_rules');
 
 /* ---------- PayMongo calls this by itself (no browser). Protected by PayMongo's signature, see WebhookController ---------- */
 $router->post('/webhooks/paymongo', 'WebhookController::paymongo');
@@ -95,4 +99,57 @@ $router->group(['middleware' => ['admin']], function ($router) {
     $router->post('/admin/settings', 'ManageController::settings_save');
     $router->post('/admin/settings/test-sms', 'ManageController::test_sms');
     $router->post('/admin/settings/test-email', 'ManageController::test_email');
+});
+
+/* ---------- JSON API for the React console (JWT bearer token, no cookies, no CSRF). Rules live in ApiController ---------- */
+$router->group(['prefix' => '/api'], function ($router) {
+    $router->post('/auth/login', 'ApiController::login');
+    $router->post('/auth/refresh', 'ApiController::refresh');
+    $router->post('/auth/logout', 'ApiController::logout');
+    $router->get('/me', 'ApiController::me');
+    $router->post('/me/password', 'ApiController::change_password');
+
+    $router->get('/room-types', 'ApiController::room_types');          // public
+    $router->get('/availability', 'ApiController::availability');      // public
+
+    $router->get('/dashboard', 'ApiController::dashboard');
+
+    $router->get('/bookings', 'ApiController::bookings');
+    $router->post('/bookings', 'ApiController::booking_walkin');
+    $router->get('/bookings/{ref}', 'ApiController::booking');
+    $router->put('/bookings/{ref}', 'ApiController::booking_update');
+    $router->delete('/bookings/{ref}', 'ApiController::booking_delete');
+    $router->post('/bookings/{ref}/action', 'ApiController::booking_action');
+
+    $router->get('/guests', 'ApiController::guests');
+    $router->get('/guests/{id}', 'ApiController::guest');
+    $router->put('/guests/{id}', 'ApiController::guest_update');
+    $router->delete('/guests/{id}', 'ApiController::guest_delete');
+
+    $router->get('/types', 'ApiController::types');
+    $router->post('/types', 'ApiController::type_create');
+    $router->put('/types/{id}', 'ApiController::type_update');
+    $router->delete('/types/{id}', 'ApiController::type_delete');
+
+    $router->get('/rooms', 'ApiController::rooms');
+    $router->post('/rooms', 'ApiController::room_create');
+    $router->put('/rooms/{id}', 'ApiController::room_update');
+    $router->delete('/rooms/{id}', 'ApiController::room_delete');
+
+    $router->get('/payments', 'ApiController::payments');
+    $router->post('/payments/{id}/refund', 'ApiController::payment_refund');
+
+    $router->get('/notifications', 'ApiController::notifications');
+    $router->post('/notifications/{id}/retry', 'ApiController::notification_retry');
+    $router->delete('/notifications/{id}', 'ApiController::notification_delete');
+
+    $router->get('/staff', 'ApiController::staff');
+    $router->post('/staff', 'ApiController::staff_create');
+    $router->put('/staff/{id}', 'ApiController::staff_update');
+    $router->delete('/staff/{id}', 'ApiController::staff_delete');
+
+    $router->get('/settings', 'ApiController::settings');
+    $router->put('/settings', 'ApiController::settings_save');
+    $router->get('/reports', 'ApiController::reports');
+    $router->get('/audit', 'ApiController::audit');
 });

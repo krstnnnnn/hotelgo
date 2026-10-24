@@ -5,4 +5,4 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 $autoload['libraries'] = array('database', 'session');
 $autoload['helpers']   = array('url', 'security', 'hotelgo');
 $autoload['models']    = array();
-$autoload['configs']   = array('middleware');
+$autoload['configs']   = array('middleware', 'hotelgo', 'integrations');

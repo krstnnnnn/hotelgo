@@ -6,13 +6,23 @@ class HomeController extends Controller
     public function __construct()
     {
         parent::__construct();
-        $this->call->model('RoomModel');
+        $this->call->model('RoomTypeModel');
         $this->call->model('BookingModel');
     }
 
     public function index()
     {
-        render('home/index', ['types' => $this->RoomModel->types(), 'title' => 'Book a room by the hour or overnight']);
+        render('home/index', ['types' => $this->RoomTypeModel->types(), 'title' => 'Book a room by the hour or overnight', 'landing' => true]);
+    }
+
+    /* Terms, privacy and policies (plain pages, text lives in views/home/legal.php) */
+    public function terms()        { $this->legal('terms', 'Terms of Service'); }
+    public function privacy()      { $this->legal('privacy', 'Privacy Policy'); }
+    public function cancellation() { $this->legal('cancellation', 'Cancellation & Refund Policy'); }
+    public function house_rules()  { $this->legal('rules', 'House Rules'); }
+    private function legal(string $page, string $title): void
+    {
+        render('home/legal', ['page' => $page, 'title' => $title]);
     }
 
     /* Search results: GET /rooms?stay=hourly&date=2026-10-17&time=19:00&hours=3&guests=2 */
@@ -31,7 +41,7 @@ class HomeController extends Controller
             $error = 'Please choose a valid date and start time (not in the past, within 60 days).';
         } else {
             $avail = $this->BookingModel->availability($w['start'], $w['end']);
-            foreach ($this->RoomModel->types() as $t) {
+            foreach ($this->RoomTypeModel->types() as $t) {
                 if ((int) $t['max_guests'] < $p['guests']) continue;
                 $t['free'] = $avail[(int) $t['id']] ?? 0;
                 $t['price'] = $this->BookingModel->price($t, $p['stay'], (int) $w['hours']);

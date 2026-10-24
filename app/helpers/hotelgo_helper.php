@@ -6,16 +6,21 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 | HOTELGO helper functions (loaded automatically, see config/autoload.php)
 |--------------------------------------------------------------------
 | Rule 1: every value shown on a page goes through e()      -> stops XSS
-| Rule 2: every SQL uses "?" placeholders through q()        -> stops SQL injection
+| Rule 2: database access lives in app/models (query builder, bound values) -> stops SQL injection
 | Rule 3: every redirect uses go() (it always stops the script)
+| Settings come from config_item() (app/config/hotelgo.php and integrations.php).
+| The time zone is set by LavaLust itself ($config['date_default_timezone']).
 */
-date_default_timezone_set('Asia/Manila');
+
+use Hotelgo\Support\Csv;
+use Hotelgo\Support\Ics;
+use Hotelgo\Support\Money;
+use Hotelgo\Support\Phone;
 
 /* ---------- small basics ---------- */
 function e($value): string { return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
-function env_get(string $key, string $default = ''): string { $v = getenv($key); return ($v === false || $v === '') ? $default : $v; }
-function is_production(): bool { return env_get('APP_ENV', 'development') === 'production'; }
-function money($n): string { return '₱' . number_format((float) $n, 2); }
+function is_production(): bool { return config_item('environment') === 'production'; }
+function money($n): string { return Money::format($n); }
 function now_str(): string { return date('Y-m-d H:i:s'); }
 function fmt_dt($s, string $f = 'D, j M Y · g:i A'): string { $t = strtotime((string) $s); return $t ? date($f, $t) : ''; }
 function post_str(string $k, string $d = ''): string { $v = $_POST[$k] ?? $d; return is_string($v) ? trim($v) : $d; }
@@ -25,34 +30,15 @@ function get_int(string $k, int $d = 0): int { $v = $_GET[$k] ?? ''; return (is_
 function len_ok(string $s, int $min, int $max): bool { $l = mb_strlen($s); return $l >= $min && $l <= $max; }
 
 function client_ip(): string {
-    if (env_get('TRUST_PROXY') === '1' && !empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+    if (config_item('hotelgo_trust_proxy') && !empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
         $ip = trim(explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0]);
         if (filter_var($ip, FILTER_VALIDATE_IP)) return $ip;
     }
     return $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
 }
 
-/* ---------- database shortcuts (ALL queries use ? placeholders) ---------- */
-function db() { return lava_instance()->db; }
-function q(string $sql, array $params = []): PDOStatement { return db()->raw($sql, array_values($params)); }
-function q_all(string $sql, array $params = []): array { return q($sql, $params)->fetchAll(PDO::FETCH_ASSOC); }
-function q_one(string $sql, array $params = []): ?array { $r = q($sql, $params)->fetch(PDO::FETCH_ASSOC); return $r ?: null; }
-function q_val(string $sql, array $params = []) { $r = q($sql, $params)->fetch(PDO::FETCH_NUM); return $r ? $r[0] : null; }
-function insert_row(string $table, array $data): int {
-    /* $table and the column names come from our own code, never from users */
-    if (!preg_match('/^[a-z_]+$/', $table)) throw new Exception('bad table');
-    foreach (array_keys($data) as $c) if (!preg_match('/^[a-z_0-9]+$/', $c)) throw new Exception('bad column');
-    $sql = 'INSERT INTO ' . $table . ' (' . implode(',', array_keys($data)) . ') VALUES (' . implode(',', array_fill(0, count($data), '?')) . ')';
-    q($sql, array_values($data));
-    return (int) db()->last_id();
-}
-function lock_suffix(): string { return env_get('DB_DRIVER', 'mysql') === 'mysql' ? ' FOR UPDATE' : ''; }
-
-function setting(string $key, string $default = ''): string {
-    static $cache = null;
-    if ($cache === null) { $cache = []; foreach (q_all('SELECT skey, svalue FROM settings') as $r) $cache[$r['skey']] = $r['svalue']; }
-    return $cache[$key] ?? $default;
-}
+/* ---------- motel settings (the "settings" table, cached per request) ---------- */
+function setting(string $key, string $default = ''): string { return lava_instance()->call->model('SettingModel')->value($key, $default); }
 
 /* ---------- flash messages ---------- */
 function flash(string $type, string $msg): void { $_SESSION['_flash'][] = [$type, $msg]; }
@@ -77,7 +63,7 @@ function current_user(): ?array {
     if ($user !== false) return $user;
     $id = $_SESSION['uid'] ?? null;
     if (!$id) return $user = null;
-    $row = q_one('SELECT id, full_name, email, mobile, role, is_active, must_change_password, mobile_verified_at FROM users WHERE id = ? AND is_active = 1', [(int) $id]);
+    $row = lava_instance()->call->model('UserModel')->session_user((int) $id);
     if (!$row) { unset($_SESSION['uid']); return $user = null; }
     return $user = $row;
 }
@@ -86,7 +72,7 @@ function login_user(int $id): void {
     session_regenerate_id(true);               // stops session fixation
     $_SESSION['uid'] = $id;
     $_SESSION['_csrf'] = bin2hex(random_bytes(32));
-    q('UPDATE users SET last_login_at = ? WHERE id = ?', [now_str(), $id]);
+    lava_instance()->call->model('UserModel')->touch_login($id);
 }
 function logout_user(): void {
     $_SESSION = [];
@@ -100,7 +86,7 @@ function logout_user(): void {
 /* ---------- audit log ---------- */
 function audit(string $action, string $detail = ''): void {
     $u = current_user();
-    insert_row('audit_logs', ['user_id' => $u['id'] ?? null, 'action' => mb_substr($action, 0, 60), 'detail' => mb_substr($detail, 0, 250), 'ip' => client_ip(), 'created_at' => now_str()]);
+    lava_instance()->call->model('AuditModel')->record($u['id'] ?? null, $action, $detail);
 }
 
 /* ---------- pages ---------- */
@@ -127,30 +113,15 @@ function booking_ref(): string {
     for ($i = 0; $i < 6; $i++) $s .= $abc[random_int(0, strlen($abc) - 1)];
     return 'HG-' . $s;
 }
-function normalize_mobile(string $m): ?string {
-    $m = preg_replace('/[\s\-()]/', '', $m);
-    if (preg_match('/^(\+63|63|0)(9\d{9})$/', $m, $x)) return '+63' . $x[2];
-    return null;
-}
-function mask_mobile(?string $m): string { return $m && strlen($m) > 6 ? substr($m, 0, 6) . ' ••• ' . substr($m, -4) : ''; }
-function mask_email(?string $m): string { if (!$m || !str_contains($m, '@')) return ''; [$a, $b] = explode('@', $m, 2); return substr($a, 0, 2) . '•••@' . $b; }
+function normalize_mobile(string $m): ?string { return Phone::normalize($m); }
+function mask_mobile(?string $m): string { return Phone::mask($m); }
+function mask_email(?string $m): string { return Phone::maskEmail($m); }
 function status_class(string $s): string {
     return match ($s) { 'confirmed', 'paid', 'delivered', 'sent', 'active' => 'ok', 'pending_payment', 'pending', 'logged', 'maintenance', 'refund_pending' => 'warn', 'checked_in' => 'info', 'failed' => 'bad', default => 'gray' };
 }
 function stay_label(array $b): string { return $b['stay_type'] === 'overnight' ? 'Overnight' : 'Hourly · ' . (int) $b['hours'] . ' hrs'; }
-function csv_safe($v): string { $v = (string) $v; return preg_match('/^[=+\-@\t\r]/', $v) ? "'" . $v : $v; }   // stops CSV formula injection
+function csv_safe($v): string { return Csv::safe($v); }   // stops CSV formula injection
 function maps_link(): string { return 'https://www.google.com/maps/dir/?api=1&destination=' . rawurlencode(setting('motel_lat', '13.5188') . ',' . setting('motel_lng', '120.9647')); }   // opens turn-by-turn directions
-
-/* ---------- tiny HTTP helper for the payment / SMS / email providers ---------- */
-function http_json(string $method, string $url, array $headers = [], ?array $body = null): array {
-    $ch = curl_init($url);
-    $opt = [CURLOPT_CUSTOMREQUEST => $method, CURLOPT_HTTPHEADER => array_merge(['Content-Type: application/json', 'Accept: application/json'], $headers),
-        CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 15, CURLOPT_SSL_VERIFYPEER => true, CURLOPT_SSL_VERIFYHOST => 2];
-    if ($body !== null) $opt[CURLOPT_POSTFIELDS] = json_encode($body);
-    curl_setopt_array($ch, $opt);
-    $res = curl_exec($ch); $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    return [$code, json_decode((string) $res, true) ?: []];
-}
 
 function nav_active(string $path): string {
     $cur = trim((string) parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH), '/');
@@ -176,28 +147,16 @@ function search_form(array $p): string {
 
 /* ---------- absolute address (used inside the QR code) ---------- */
 function abs_url(string $path = ''): string {
-    $base = rtrim(env_get('APP_URL'), '/');
+    $base = (string) config_item('hotelgo_app_url');
     if ($base === '') {
-        $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (env_get('TRUST_PROXY') === '1' && ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+        $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (config_item('hotelgo_trust_proxy') && ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
         $base = ($https ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost');
     }
     return $base . '/' . ltrim($path, '/');
 }
 
-/* ---------- QR code as an inline SVG picture (pure PHP, no internet needed) ---------- */
-function qr_svg(string $text, string $color = '#0B2233'): string {
-    require_once dirname(__DIR__) . '/libraries/qrcode.php';
-    $qr = QRCode::getMinimumQRCode($text, QR_ERROR_CORRECT_LEVEL_M);
-    $n = $qr->getModuleCount(); $path = '';
-    for ($r = 0; $r < $n; $r++) {
-        $c = 0;
-        while ($c < $n) {
-            if ($qr->isDark($r, $c)) { $s = $c; while ($c < $n && $qr->isDark($r, $c)) $c++; $path .= 'M' . $s . ' ' . $r . 'h' . ($c - $s) . 'v1h-' . ($c - $s) . 'z'; }
-            else $c++;
-        }
-    }
-    return '<svg viewBox="-2 -2 ' . ($n + 4) . ' ' . ($n + 4) . '" role="img" aria-label="QR code for this booking" shape-rendering="crispEdges"><path d="' . $path . '" fill="' . e($color) . '"/></svg>';
-}
+/* ---------- QR code as an inline SVG picture (library app/libraries/Qr.php) ---------- */
+function qr_svg(string $text): string { return lava_instance()->call->library('qr')->svg($text); }
 
 /* ---------- small icon set (inline SVG) ---------- */
 function icon(string $name, string $color = 'currentColor', int $size = 20): string {
@@ -224,31 +183,11 @@ function time_options(string $selected = '19:00'): string {
 function pay_label(string $m): string { return ['ewallet' => 'E-wallet', 'card' => 'Card', 'bank' => 'Bank / OTC', 'cash' => 'Cash'][$m] ?? 'Online'; }
 function notice_label(string $s): string { return ['sent' => 'Sent', 'logged' => 'Demo', 'failed' => 'Failed', 'retried' => 'Retried'][$s] ?? $s; }
 
-/* ---------- plain HTTP request (used for SMS + email providers). Returns [http code, body text, error text] ---------- */
-function http_request(string $method, string $url, array $headers = [], ?string $body = null, int $timeout = 15, bool $follow = false): array {
-    if (!function_exists('curl_init')) return [0, '', 'The PHP cURL extension is not installed on this server.'];
-    $ch = curl_init($url);
-    $opt = [CURLOPT_HTTPHEADER => $headers, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => $timeout, CURLOPT_CONNECTTIMEOUT => 8,
-        CURLOPT_SSL_VERIFYPEER => true, CURLOPT_SSL_VERIFYHOST => 2, CURLOPT_FOLLOWLOCATION => $follow, CURLOPT_MAXREDIRS => 4, CURLOPT_USERAGENT => 'HOTELGO/1.0'];
-    if ($follow) $opt[CURLOPT_REDIR_PROTOCOLS] = CURLPROTO_HTTPS;                    // only follow redirects to https
-    if ($method === 'POST') $opt[CURLOPT_POST] = true; else $opt[CURLOPT_CUSTOMREQUEST] = $method;   // CURLOPT_POST lets a redirect turn into a GET (Google Apps Script needs this)
-    if ($body !== null) $opt[CURLOPT_POSTFIELDS] = $body;
-    $ca = env_get('CURL_CA_BUNDLE'); if ($ca !== '' && is_file($ca)) $opt[CURLOPT_CAINFO] = $ca;   // only needed on some Windows setups
-    curl_setopt_array($ch, $opt);
-    $res = curl_exec($ch); $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE); $err = curl_error($ch);
-    return [$code, (string) $res, $err];
-}
-
 /* Semaphore wants 09XXXXXXXXX (we store +639XXXXXXXXX) */
-function to_local_mobile(string $m): string { $d = preg_replace('/\D/', '', $m); return str_starts_with($d, '63') ? '0' . substr($d, 2) : $d; }
+function to_local_mobile(string $m): string { return Phone::toLocal($m); }
 
 /* The calendar file (.ics): downloaded on the ticket page AND attached to the confirmation email */
-function ics_content(array $b): string {
-    $esc = fn($s) => preg_replace('/([,;\\\\])/', '\\\\$1', str_replace(["\r", "\n"], ' ', (string) $s));
-    $utc = fn($s) => gmdate('Ymd\\THis\\Z', strtotime($s));
-    return "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//HOTELGO//EN\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\nBEGIN:VEVENT\r\nUID:" . $b['booking_ref'] . "@hotelgo\r\nDTSTAMP:" . gmdate('Ymd\\THis\\Z') . "\r\nSEQUENCE:" . max(0, intdiv(time() - 1700000000, 60)) . "\r\nDTSTART:" . $utc($b['start_at']) . "\r\nDTEND:" . $utc($b['end_at']) . "\r\nSTATUS:CONFIRMED\r\nDESCRIPTION:" . $esc('Booking ' . $b['booking_ref'] . '. Show your reference and a valid ID at check-in.') . "\r\n"
-        . 'SUMMARY:' . $esc('HOTELGO · Room ' . $b['room_no']) . "\r\nLOCATION:" . $esc(setting('motel_name') . ', ' . setting('motel_address')) . "\r\nBEGIN:VALARM\r\nTRIGGER:-PT30M\r\nACTION:DISPLAY\r\nDESCRIPTION:Check-in in 30 minutes\r\nEND:VALARM\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
-}
+function ics_content(array $b): string { return Ics::booking($b, setting('motel_name'), setting('motel_address')); }
 
 /* Free map (OpenStreetMap) used when there is no Google Maps key */
 function osm_embed_url(): string {

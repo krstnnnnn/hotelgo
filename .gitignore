@@ -4,3 +4,7 @@ runtime/*
 *.log
 .vscode/
 .idea/
+# installed by "composer install" (the Dockerfile does it on Render)
+vendor/
+# installed by "npm install" inside frontend/ (the built files in public/panel ARE committed)
+frontend/node_modules/

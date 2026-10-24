@@ -2,170 +2,203 @@
 defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 
 /*
-| Payment gateway.
-|  PAYMENT_PROVIDER=mock      -> a "sandbox" payment page (school demo only)
-|  PAYMENT_PROVIDER=paymongo  -> real PayMongo Hosted Checkout (GCash / Maya / card ...). Start with TEST keys (sk_test_...).
+| Money. Table: payments.
+| This model keeps the payment records and decides what a payment means for a booking.
+| Talking to PayMongo is done by the library app/libraries/Paymongo.php (it never touches the database).
 |
-| How a real payment travels:
-|  1. Guest clicks "Pay"      -> we create a PayMongo Checkout Session and send the guest to PayMongo's page.
-|  2. Guest pays on PayMongo  -> PayMongo calls our WEBHOOK (/webhooks/paymongo) and ALSO sends the guest back to /pay/{ref}/return.
-|  3. We never trust the browser or the webhook text alone: we ask PayMongo's API "was this session really paid, and for the right amount?"
+|   payment_provider=mock      -> a "sandbox" payment page (school demo only)
+|   payment_provider=paymongo  -> real PayMongo Hosted Checkout (GCash / Maya / card). Start with TEST keys (sk_test_...).
+|
+| Payment records are kept for the books: they can be refunded, but never deleted from the website.
 */
 class PaymentModel extends Model
 {
     protected $table = 'payments';
+
     public $error = '';
-    const API = 'https://api.paymongo.com/v1';
 
-    public function provider(): string { return env_get('PAYMENT_PROVIDER', 'mock'); }
-    /* The fake payment page must NEVER be open on a real (production) site unless you allow it on purpose. */
-    public function mock_allowed(): bool { return !is_production() || env_get('ALLOW_MOCK_PAYMENT') === '1'; }
-    public function key(): string { return env_get('PAYMONGO_SECRET_KEY'); }
-    public function key_mode(): string { $k = $this->key(); return str_starts_with($k, 'sk_test_') ? 'test' : (str_starts_with($k, 'sk_live_') ? 'live' : 'invalid'); }
+    const COLUMNS = 'p.id, p.booking_id, p.txn_ref, p.method, p.provider, p.provider_ref, p.amount, p.status, p.created_at, p.paid_at, p.refunded_at';
 
-    private function headers(): array { return ['Authorization: Basic ' . base64_encode($this->key() . ':'), 'Content-Type: application/json', 'Accept: application/json']; }
-    /* returns [http code, decoded json, curl error] */
-    protected function call(string $method, string $path, ?array $body = null): array
+    private function gateway()
     {
-        [$http, $res, $err] = http_request($method, self::API . $path, $this->headers(), $body !== null ? json_encode($body) : null);
-        return [$http, json_decode($res, true) ?: [], $err];
+        return $this->call->library('paymongo');
     }
-    private function api_error(int $http, array $j, string $err): string
+    private function bookings()
     {
-        if ($err !== '') return mb_substr($err, 0, 200);
-        $d = $j['errors'][0]['detail'] ?? ($j['errors'][0]['code'] ?? '');
-        return mb_substr('PayMongo said (HTTP ' . $http . '): ' . ($d ?: 'no details'), 0, 240);
+        return $this->call->model('BookingModel');
     }
 
-    /* which PayMongo payment methods to offer for the guest's choice (e-wallet / card / bank) */
-    public function methods_for(string $choice): array
+    /* ======================================================= create ======================================================= */
+    public function add_paid(array $b, string $method, string $provider, string $providerRef): int
     {
-        $allowed = array_values(array_filter(array_map('trim', explode(',', env_get('PAYMONGO_METHODS', 'gcash,paymaya,card')))));
-        $groups = ['ewallet' => ['gcash', 'paymaya', 'grab_pay', 'qrph'], 'card' => ['card'], 'bank' => ['dob', 'dob_ubp', 'brankas_bdo', 'brankas_landbank', 'brankas_metrobank']];
-        return array_values(array_intersect($allowed, $groups[$choice] ?? [])) ?: $allowed;
+        return (int) $this->insert([
+            'booking_id' => $b['id'], 'txn_ref' => 'TXN-' . strtoupper(bin2hex(random_bytes(5))), 'method' => $method,
+            'provider' => $provider, 'provider_ref' => $providerRef, 'amount' => $b['total'], 'status' => 'paid',
+            'created_at' => now_str(), 'paid_at' => now_str(),
+        ]);
     }
-    public function method_from(array $session, string $fallback): string
+    /* Cash paid at the front desk (walk-in guests) */
+    public function add_cash(array $b): int
     {
-        $t = $session['attributes']['payments'][0]['attributes']['source']['type'] ?? '';
-        if ($t === 'card') return 'card';
-        if (in_array($t, ['gcash', 'paymaya', 'grab_pay', 'qrph'], true)) return 'ewallet';
-        if ($t !== '') return 'bank';
-        return $fallback ?: 'ewallet';
-    }
-
-    /* ----- 1. build the "create checkout session" request (pure function, easy to test) ----- */
-    public function session_request(array $b): array
-    {
-        $base = rtrim(env_get('APP_URL'), '/') ?: rtrim(abs_url(''), '/');
-        return ['data' => ['attributes' => [
-            'line_items' => [['name' => 'HOTELGO ' . $b['type_name'] . ' · ' . $b['booking_ref'], 'amount' => (int) round($b['total'] * 100), 'currency' => 'PHP', 'quantity' => 1,
-                'description' => stay_label($b) . ' · ' . fmt_dt($b['start_at'], 'j M Y g:i A')]],
-            'payment_method_types' => $this->methods_for($b['pay_method'] ?? ''),
-            'reference_number' => $b['booking_ref'], 'description' => 'HOTELGO booking ' . $b['booking_ref'],
-            'success_url' => $base . '/pay/' . $b['booking_ref'] . '/return', 'cancel_url' => $base . '/booking/' . $b['booking_ref'],
-            'send_email_receipt' => false, 'show_description' => true, 'show_line_items' => true,
-        ]]];
+        return $this->add_paid($b, 'cash', 'frontdesk', '');
     }
 
-    /* Returns the web address where the guest must pay, or null (see $this->error). */
+    /* ======================================================= read ======================================================= */
+    public function provider_ref_exists(string $provider, string $providerRef): bool
+    {
+        return $this->db->table($this->table)->where('provider', $provider)->where('provider_ref', $providerRef)->count() > 0;
+    }
+    public function count_for(int $bookingId): int
+    {
+        return (int) $this->db->table($this->table)->where('booking_id', $bookingId)->count();
+    }
+    public function for_booking(int $bookingId): array
+    {
+        return $this->db->table($this->table)->where('booking_id', $bookingId)->order_by('id', 'DESC')->get_all();
+    }
+    /* The payment shown on the receipt */
+    public function receipt_for(int $bookingId): ?array
+    {
+        return $this->db->table($this->table)->where('booking_id', $bookingId)->in('status', ['paid', 'refunded'])->order_by('id', 'DESC')->limit(1)->get() ?: null;
+    }
+    public function recent(int $limit = 200): array
+    {
+        return $this->db->table('payments p')
+            ->select(self::COLUMNS . ', b.booking_ref, b.guest_name')
+            ->join('bookings b', 'b.id = p.booking_id')
+            ->order_by('p.id', 'DESC')->limit($limit)->get_all();
+    }
+    /* Total of one status (optionally only from a time on: paid_at for paid payments) */
+    public function total(string $status, string $since = ''): float
+    {
+        $this->db->table($this->table)->select_sum('amount', 'total')->where('status', $status);
+        if ($since !== '') {
+            $this->db->where('paid_at', '>=', $since);
+        }
+        return (float) ($this->db->get()['total'] ?? 0);
+    }
+    public function waiting_count(): int
+    {
+        return (int) $this->db->table('bookings')->where('status', 'pending_payment')->count();
+    }
+    /* Paid payments with their stay, for the reports page (dates are Y-m-d, both included) */
+    public function paid_between(string $from, string $to): array
+    {
+        return $this->db->table('payments p')
+            ->select('p.amount, p.paid_at, b.stay_type, b.hours, b.start_at, t.name AS type_name')
+            ->join('bookings b', 'b.id = p.booking_id')
+            ->join('room_types t', 't.id = b.room_type_id')
+            ->where('p.status', 'paid')
+            ->where('p.paid_at', '>=', $from . ' 00:00:00')
+            ->where('p.paid_at', '<', date('Y-m-d', strtotime($to . ' +1 day')) . ' 00:00:00')
+            ->get_all();
+    }
+
+    /* Numbers for the reports page (revenue by day, by stay type, by room type, busy hours) */
+    public function report(string $from, string $to): array
+    {
+        $rows  = $this->paid_between($from, $to);
+        $byDay = []; $byStay = ['hourly' => 0, 'overnight' => 0]; $byType = []; $hours = 0; $hourly = 0; $heat = [];
+        for ($d = strtotime($from); $d <= strtotime($to); $d += 86400) {
+            $byDay[date('Y-m-d', $d)] = ['hourly' => 0, 'overnight' => 0];
+        }
+        foreach ($rows as $r) {
+            $day = date('Y-m-d', strtotime($r['paid_at']));
+            if (isset($byDay[$day])) $byDay[$day][$r['stay_type']] += (float) $r['amount'];
+            $byStay[$r['stay_type']] += (float) $r['amount'];
+            $byType[$r['type_name']] = ($byType[$r['type_name']] ?? 0) + (float) $r['amount'];
+            if ($r['stay_type'] === 'hourly') { $hours += (int) $r['hours']; $hourly++; }
+            $k = date('w', strtotime($r['start_at'])) . '-' . date('G', strtotime($r['start_at']));
+            $heat[$k] = ($heat[$k] ?? 0) + 1;
+        }
+        return ['from' => $from, 'to' => $to, 'total' => array_sum(array_column($rows, 'amount')), 'count' => count($rows),
+            'byDay' => $byDay, 'byStay' => $byStay, 'byType' => $byType, 'avgHours' => $hourly ? round($hours / $hourly, 1) : 0, 'heat' => $heat];
+    }
+
+    /* ======================================================= pay ======================================================= */
+    /* Where must the guest pay? Returns a web address, or null (see $this->error). */
     public function start(array $b): ?string
     {
         $this->error = '';
-        if ($this->provider() === 'paymongo') {
-            if ($this->key_mode() === 'invalid') { $this->error = 'PAYMONGO_SECRET_KEY is missing or does not start with sk_test_ / sk_live_.'; return null; }
-            if (!empty($b['pay_ref'])) {                                       // same booking opened again: reuse the session that is still open (never two payable sessions)
-                $s = $this->session_get($b['pay_ref']);
-                if ($s && ($s['attributes']['status'] ?? '') === 'active' && !empty($s['attributes']['checkout_url'])) return $s['attributes']['checkout_url'];
+        $gw = $this->gateway();
+        if ($gw->provider() === 'paymongo') {
+            $session = $gw->create_session($b);
+            if (!$session) {
+                $this->error = $gw->error;
+                return null;
             }
-            [$http, $j, $err] = $this->call('POST', '/checkout_sessions', $this->session_request($b));
-            if ($err !== '' || $http !== 200 || empty($j['data']['id']) || empty($j['data']['attributes']['checkout_url'])) { $this->error = $this->api_error($http, $j, $err); return null; }
-            q('UPDATE bookings SET pay_ref = ? WHERE id = ?', [$j['data']['id'], $b['id']]);
-            return $j['data']['attributes']['checkout_url'];
+            [$url, $sessionId] = $session;
+            if (($b['pay_ref'] ?? '') !== $sessionId) {
+                $this->bookings()->set_pay_ref((int) $b['id'], $sessionId);
+            }
+            return $url;
         }
-        return $this->mock_allowed() ? site_url('pay/' . $b['booking_ref']) : null;
+        return $gw->mock_allowed() ? site_url('pay/' . $b['booking_ref']) : null;
     }
 
-    /* ----- 2. ask PayMongo about a session (null = could not reach PayMongo) ----- */
-    public function session_get(string $id): ?array
-    {
-        if (!preg_match('/^cs_[A-Za-z0-9]+$/', $id)) return null;
-        [$http, $j, $err] = $this->call('GET', '/checkout_sessions/' . $id);
-        return ($err === '' && $http === 200 && !empty($j['data'])) ? $j['data'] : null;
-    }
-    public function session_expire(string $id): void
-    {
-        if ($this->provider() === 'paymongo' && preg_match('/^cs_[A-Za-z0-9]+$/', $id)) $this->call('POST', '/checkout_sessions/' . $id . '/expire');
-    }
-    /* Was the session paid, for exactly the booking total? Returns the PayMongo payment id (pay_...) or null. */
-    public function session_paid(array $session, array $b): ?string
-    {
-        foreach (($session['attributes']['payments'] ?? []) as $p) {
-            $a = $p['attributes'] ?? [];
-            if (($a['status'] ?? '') === 'paid' && (int) ($a['amount'] ?? 0) === (int) round($b['total'] * 100)) return (string) ($p['id'] ?? 'paid');
-        }
-        return null;
-    }
-
-    /* ----- 3. webhook: check the signature, read the event ----- */
-    /* header looks like  t=1496734173,te=<test signature>,li=<live signature> ; signature = HMAC-SHA256(secret, t + "." + raw body) */
-    public function verify_signature(string $raw, string $header, string $secret): ?string
-    {
-        $parts = [];
-        foreach (explode(',', $header) as $kv) { $kv = explode('=', trim($kv), 2); if (count($kv) === 2) $parts[$kv[0]] = $kv[1]; }
-        if ($secret === '' || empty($parts['t']) || !ctype_digit($parts['t'])) return null;
-        $expected = hash_hmac('sha256', $parts['t'] . '.' . $raw, $secret);
-        if (!empty($parts['te']) && hash_equals($expected, $parts['te'])) return 'test';
-        if (!empty($parts['li']) && hash_equals($expected, $parts['li'])) return 'live';
-        return null;
-    }
-    /* PayMongo documents two shapes of the event; we accept both. Returns [event type, checkout session object] */
-    public function extract_event(array $j): array
-    {
-        if (isset($j['data']['attributes']['type'], $j['data']['attributes']['data'])) return [$j['data']['attributes']['type'], $j['data']['attributes']['data']];
-        if (isset($j['data']['type'], $j['data']['data'])) return [$j['data']['type'], $j['data']['data']];
-        return [null, null];
-    }
-
-    /* A paid session arrived (webhook). Returns [result, booking] */
+    /* A paid checkout session arrived (webhook or return page). Returns [result, booking]. */
     public function handle_paid_session(array $session): array
     {
-        $id = (string) ($session['id'] ?? ''); $ref = (string) ($session['attributes']['reference_number'] ?? '');
-        if (!preg_match('/^cs_[A-Za-z0-9]+$/', $id)) return ['invalid', null];
-        $b = q_one('SELECT * FROM bookings WHERE pay_ref = ?', [$id]) ?: (preg_match('/^HG-[A-Z0-9]{6}$/', $ref) ? q_one('SELECT * FROM bookings WHERE booking_ref = ?', [$ref]) : null);
-        if (!$b) return ['unknown_booking', null];
-        $live = $this->session_get($id);                                       // do not trust the webhook text alone: ask PayMongo
-        if ($live === null) return ['retry', $b];                              // could not reach PayMongo: answer with an error so PayMongo tries again later
-        $payId = $this->session_paid($live, $b);
-        if (!$payId) return ['not_paid', $b];
-        if ((int) q_val('SELECT COUNT(*) FROM payments WHERE provider = ? AND provider_ref = ?', ['paymongo', $payId]) > 0) return ['already', $b];
-        $r = (new BookingModel())->mark_paid($b['booking_ref'], $this->method_from($live, (string) $b['pay_method']), 'paymongo', $payId, true);
+        $gw  = $this->gateway();
+        $id  = (string) ($session['id'] ?? '');
+        $ref = (string) ($session['attributes']['reference_number'] ?? '');
+        if (!preg_match('/^cs_[A-Za-z0-9]+$/', $id)) {
+            return ['invalid', null];
+        }
+        $b = $this->bookings()->by_pay_ref($id) ?: (preg_match('/^HG-[A-Z0-9]{6}$/', $ref) ? $this->bookings()->by_ref($ref) : null);
+        if (!$b) {
+            return ['unknown_booking', null];
+        }
+        $live = $gw->session_get($id);                       // do not trust the webhook text alone: ask PayMongo
+        if ($live === null) {
+            return ['retry', $b];                            // could not reach PayMongo: answer with an error so it tries again later
+        }
+        $payId = $gw->session_paid($live, $b);
+        if (!$payId) {
+            return ['not_paid', $b];
+        }
+        if ($this->provider_ref_exists('paymongo', $payId)) {
+            return ['already', $b];
+        }
+        $r = $this->bookings()->mark_paid($b['booking_ref'], $gw->method_from($live, (string) $b['pay_method']), 'paymongo', $payId, true);
         return [$r['status'], $r['booking']];
     }
 
-    /* ----- refunds ----- */
-    /* returns [ok, message] */
+    /* ======================================================= refund ======================================================= */
+    /* Returns [ok, message] */
     public function refund(int $paymentId): array
     {
-        $p = q_one("SELECT * FROM payments WHERE id = ? AND status IN ('paid','refund_pending')", [$paymentId]);
-        if (!$p) return [false, 'That payment cannot be refunded.'];
+        $p = $this->db->table($this->table)->where('id', $paymentId)->in('status', ['paid', 'refund_pending'])->get();
+        if (!$p) {
+            return [false, 'That payment cannot be refunded.'];
+        }
         if ($p['provider'] === 'paymongo') {
-            if ($this->key_mode() === 'invalid') return [false, 'PAYMONGO_SECRET_KEY is missing, so the refund could not be sent.'];
-            [$http, $j, $err] = $this->call('POST', '/refunds', ['data' => ['attributes' => ['amount' => (int) round($p['amount'] * 100), 'payment_id' => $p['provider_ref'], 'reason' => 'requested_by_customer', 'notes' => 'HOTELGO ' . $p['txn_ref']]]]);
-            if ($err !== '' || $http < 200 || $http >= 300) {
-                q("UPDATE payments SET status = 'refund_pending' WHERE id = ?", [$paymentId]);
-                return [false, 'PayMongo did not accept the refund yet. It is marked "refund pending". ' . $this->api_error($http, $j, $err)];
+            $gw = $this->gateway();
+            if ($gw->key_mode() === 'invalid') {
+                return [false, 'PAYMONGO_SECRET_KEY is missing, so the refund could not be sent.'];
+            }
+            [$accepted, $message] = $gw->refund_request($p);
+            if (!$accepted) {
+                $this->update($paymentId, ['status' => 'refund_pending']);
+                return [false, $message];
             }
         }
-        q("UPDATE payments SET status = 'refunded', refunded_at = ? WHERE id = ?", [now_str(), $paymentId]);
-        q("UPDATE bookings SET status = 'cancelled', cancelled_at = ? WHERE id = ? AND status IN ('confirmed','pending_payment')", [now_str(), $p['booking_id']]);
+        $this->update($paymentId, ['status' => 'refunded', 'refunded_at' => now_str()]);
+        $this->db->table('bookings')->where('id', $p['booking_id'])->in('status', ['confirmed', 'pending_payment'])->update(['status' => 'cancelled', 'cancelled_at' => now_str()]);
         return [true, 'Refunded.'];
     }
-    /* refund every paid payment of a cancelled booking. Returns false if any refund still needs staff attention. */
+
+    /* Refund every paid payment of a cancelled booking. Returns false if a refund still needs staff attention. */
     public function refund_booking(array $b): bool
     {
         $all = true;
-        foreach (q_all("SELECT id FROM payments WHERE booking_id = ? AND status IN ('paid','refund_pending')", [$b['id']]) as $p) { [$ok] = $this->refund((int) $p['id']); $all = $all && $ok; }
-        if (!empty($b['pay_ref']) && $b['status'] === 'pending_payment') $this->session_expire($b['pay_ref']);
+        foreach ($this->db->table($this->table)->select('id')->where('booking_id', $b['id'])->in('status', ['paid', 'refund_pending'])->get_all() as $p) {
+            [$ok] = $this->refund((int) $p['id']);
+            $all = $all && $ok;
+        }
+        if (!empty($b['pay_ref']) && $b['status'] === 'pending_payment') {
+            $this->gateway()->session_expire($b['pay_ref']);
+        }
         return $all;
     }
 }

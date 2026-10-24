@@ -8,6 +8,8 @@ class CsrfMiddleware
     {
         // PayMongo's server calls this URL, so there is no browser token. It is protected by PayMongo's signature (WebhookController).
         if (str_ends_with(trim((string) parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH), '/'), 'webhooks/paymongo')) return $next();
+        // the JSON API (/api/...) is protected by a JWT bearer token instead of a cookie, so there is nothing for a forged form to ride on
+        if (str_starts_with(trim((string) parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH), '/'), 'api/')) return $next();
         if (in_array($_SERVER['REQUEST_METHOD'] ?? 'GET', ['POST', 'PUT', 'PATCH', 'DELETE'], true)) {
             $sent  = $_POST['_csrf'] ?? '';
             $known = $_SESSION['_csrf'] ?? '';

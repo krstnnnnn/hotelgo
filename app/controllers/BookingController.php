@@ -7,7 +7,8 @@ class BookingController extends Controller
     public function __construct()
     {
         parent::__construct();
-        foreach (['RoomModel', 'BookingModel', 'PaymentModel', 'NotificationModel'] as $m) $this->call->model($m);
+        $this->call->model(['RoomTypeModel', 'BookingModel', 'PaymentModel', 'NotificationModel']);
+        $this->call->library('paymongo');
     }
 
     private function ref_ok(string $ref): void { if (!preg_match('/^HG-[A-Z0-9]{6}$/', $ref)) abort(404); }
@@ -26,7 +27,7 @@ class BookingController extends Controller
         $date = (string) ($src['date'] ?? ''); $time = (string) ($src['time'] ?? '19:00');
         $guests = (isset($src['guests']) && ctype_digit((string) $src['guests'])) ? (int) $src['guests'] : 0;
         $typeId = (isset($src['type']) && ctype_digit((string) $src['type'])) ? (int) $src['type'] : 0;
-        $type = $typeId ? $this->RoomModel->type($typeId) : null;
+        $type = $typeId ? $this->RoomTypeModel->type($typeId) : null;
         $w = $this->BookingModel->window($stay, $date, $time, $hours);
         if (!$type || !(int) $type['is_active'] || !$w || $guests < 1 || $guests > (int) $type['max_guests']) return null;
         return ['p' => ['stay' => $stay, 'date' => $date, 'time' => $time, 'hours' => $hours, 'guests' => $guests, 'type' => $typeId], 'type' => $type, 'w' => $w];
@@ -82,23 +83,23 @@ class BookingController extends Controller
             if ($this->PaymentModel->error !== '') audit('payment_start_failed', $this->PaymentModel->error);       // the owner can read the reason in the Audit log
             flash('bad', 'Online payment is not available right now. Please try again in a moment or contact the motel.'); go('my-bookings');
         }
-        if ($this->PaymentModel->provider() === 'paymongo') { header('Location: ' . $url, true, 302); exit; }
+        if ($this->paymongo->provider() === 'paymongo') { header('Location: ' . $url, true, 302); exit; }
         render('payment/sandbox', ['b' => $b, 'title' => 'Secure payment']);
     }
     public function pay_confirm($ref)           // MOCK gateway only
     {
         $b = $this->mine($ref);
-        if ($this->PaymentModel->provider() !== 'mock' || !$this->PaymentModel->mock_allowed()) abort(404);
+        if ($this->paymongo->provider() !== 'mock' || !$this->paymongo->mock_allowed()) abort(404);
         $this->finish_payment($this->BookingModel->mark_paid($ref, $b['pay_method'] ?: 'ewallet', 'mock', 'SANDBOX', false));
     }
     public function pay_return($ref)            // PayMongo sends the guest back here. We ask PayMongo (not the browser!) if it is really paid.
     {
         $b = $this->mine($ref);
-        if ($this->PaymentModel->provider() !== 'paymongo') abort(404);
-        $live = !empty($b['pay_ref']) ? $this->PaymentModel->session_get($b['pay_ref']) : null;
-        $payId = $live ? $this->PaymentModel->session_paid($live, $b) : null;
+        if ($this->paymongo->provider() !== 'paymongo') abort(404);
+        $live = !empty($b['pay_ref']) ? $this->paymongo->session_get($b['pay_ref']) : null;
+        $payId = $live ? $this->paymongo->session_paid($live, $b) : null;
         if (!$payId) { flash('warn', 'We have not received your payment yet. If you already paid, your booking is confirmed in a moment. Check My bookings.'); go('my-bookings'); }
-        $this->finish_payment($this->BookingModel->mark_paid($ref, $this->PaymentModel->method_from($live, (string) $b['pay_method']), 'paymongo', $payId, true));
+        $this->finish_payment($this->BookingModel->mark_paid($ref, $this->paymongo->method_from($live, (string) $b['pay_method']), 'paymongo', $payId, true));
     }
     private function finish_payment(array $r): void
     {
@@ -123,7 +124,7 @@ class BookingController extends Controller
     public function show($ref)
     {
         $b = $this->mine($ref);
-        $latest = fn(string $ch) => q_one("SELECT * FROM notifications WHERE booking_id = ? AND channel = ? ORDER BY id DESC LIMIT 1", [$b['id'], $ch]);
+        $latest = fn(string $ch) => $this->NotificationModel->latest((int) $b['id'], $ch);
         render('booking/show', ['b' => $b, 'can_cancel' => $this->BookingModel->can_cancel($b), 'can_modify' => $b['status'] === 'confirmed' && $this->BookingModel->can_cancel($b),
             'sms' => $latest('sms'), 'mail' => $latest('email'), 'title' => 'Booking ' . $ref]);
     }
@@ -131,7 +132,7 @@ class BookingController extends Controller
     {
         $b = $this->mine($ref);
         if (!in_array($b['status'], ['confirmed', 'checked_in', 'checked_out'], true)) abort(404);
-        render('booking/receipt', ['b' => $b, 'pay' => q_one("SELECT * FROM payments WHERE booking_id = ? AND status IN ('paid','refunded') ORDER BY id DESC LIMIT 1", [$b['id']]), 'title' => 'Receipt ' . $ref]);
+        render('booking/receipt', ['b' => $b, 'pay' => $this->PaymentModel->receipt_for((int) $b['id']), 'title' => 'Receipt ' . $ref]);
     }
     private function modifiable(string $ref): array
     {
@@ -148,7 +149,7 @@ class BookingController extends Controller
         $res = $this->BookingModel->reschedule($b, $w);
         if (!$res['ok']) { flash('bad', $res['error']); go('booking/' . $ref . '/modify'); }
         audit('booking_rescheduled', $ref);
-        $this->NotificationModel->booking_rescheduled($this->BookingModel->find($ref));
+        $this->NotificationModel->booking_rescheduled($this->BookingModel->by_ref($ref));
         flash('ok', 'Your booking was moved to the new time.');
         go('booking/' . $ref);
     }

@@ -10,7 +10,8 @@ class WebhookController extends Controller
     public function __construct()
     {
         parent::__construct();
-        foreach (['BookingModel', 'PaymentModel', 'NotificationModel'] as $m) $this->call->model($m);
+        $this->call->model(['BookingModel', 'PaymentModel', 'NotificationModel']);
+        $this->call->library('paymongo');
     }
 
     private function reply(int $code, array $body): void
@@ -23,18 +24,18 @@ class WebhookController extends Controller
 
     public function paymongo()
     {
-        $secret = env_get('PAYMONGO_WEBHOOK_SECRET');
-        if ($this->PaymentModel->provider() !== 'paymongo' || $secret === '') $this->reply(503, ['error' => 'webhook is not configured']);
+        $secret = (string) config_item('paymongo_webhook_secret');
+        if ($this->paymongo->provider() !== 'paymongo' || $secret === '') $this->reply(503, ['error' => 'webhook is not configured']);
         $raw = (string) file_get_contents('php://input');
         if ($raw === '' || strlen($raw) > 1048576) $this->reply(400, ['error' => 'bad body']);
 
-        $mode = $this->PaymentModel->verify_signature($raw, $_SERVER['HTTP_PAYMONGO_SIGNATURE'] ?? '', $secret);
-        if ($mode === null || $mode !== $this->PaymentModel->key_mode()) {        // wrong signature, or a test event sent to a live site (and the other way round)
+        $mode = $this->paymongo->verify_signature($raw, $_SERVER['HTTP_PAYMONGO_SIGNATURE'] ?? '', $secret);
+        if ($mode === null || $mode !== $this->paymongo->key_mode()) {        // wrong signature, or a test event sent to a live site (and the other way round)
             audit('webhook_rejected', 'bad signature from ' . client_ip());
             $this->reply(400, ['error' => 'invalid signature']);
         }
 
-        [$type, $session] = $this->PaymentModel->extract_event(json_decode($raw, true) ?: []);
+        [$type, $session] = $this->paymongo->extract_event(json_decode($raw, true) ?: []);
         if ($type !== 'checkout_session.payment.paid' || !is_array($session)) $this->reply(200, ['received' => true, 'ignored' => (string) $type]);
 
         [$result, $b] = $this->PaymentModel->handle_paid_session($session);

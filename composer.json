@@ -1,0 +1,18 @@
+{
+    "name": "hotelgo/hotelgo",
+    "description": "HOTELGO - motel booking and room management for Puerto Galera (LavaLust)",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Hotelgo\\Support\\": "app/support/"
+        }
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "sort-packages": true
+    }
+}

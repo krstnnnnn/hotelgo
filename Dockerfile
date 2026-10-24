@@ -26,6 +26,12 @@ RUN { \
 
 # App files
 COPY . /var/www/html/
+
+# Composer: builds vendor/autoload.php (the project's own classes in app/support are loaded through it)
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+WORKDIR /var/www/html
+RUN composer install --no-dev --optimize-autoloader --no-interaction --no-progress
+
 RUN chown -R www-data:www-data /var/www/html \
  && chmod -R 755 /var/www/html \
  && chmod -R 775 /var/www/html/runtime

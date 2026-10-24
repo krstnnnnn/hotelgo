@@ -1,284 +1,79 @@
-# LavaLust Framework
+# HOTELGO
 
-> A lightweight, fast PHP framework built for developers who want clean MVC architecture without unnecessary complexity or performance overhead.
+Motel booking and room management for Puerto Galera, built on **LavaLust 4.7** (PHP 8). Guests search and book by the hour or overnight, pay online, and get a ticket with a QR code. The front desk and the owner run the motel from a staff area. Team 3F1: Bunquin, Castro, Evora, Gayuso (ITE311).
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![PHP Version](https://img.shields.io/badge/PHP-%3E%3D7.4-8892BF)](https://www.php.net/)
-[![GitHub Stars](https://img.shields.io/github/stars/ronmarasigan/lavalust?style=flat)](https://github.com/ronmarasigan/lavalust/stargazers)
-
----
-
-## Overview
-
-**LavaLust** is an open-source PHP framework that follows the **MVC (Model–View–Controller)** architectural pattern. It is designed for developers who need a structured, maintainable, and scalable foundation — without the bloat of heavier modern frameworks.
-
-Whether you are building a simple web application, a REST API, or a teaching project, LavaLust provides the right tools with minimal friction.
-
----
-
-## Features
-
-| Feature | Description |
-|---|---|
-| **MVC Architecture** | Clean separation of Models, Views, and Controllers for organized, maintainable code |
-| **Built-in Routing** | Flexible URL routing that maps requests to controllers with minimal configuration |
-| **Libraries & Helpers** | Reusable components for sessions, forms, validation, and database access |
-| **Modular Design** | Scalable structure that supports clean organization as your application grows |
-| **REST API Support** | First-class support for building RESTful APIs using LavaLust conventions |
-| **ORM-like Models** | Simplified, readable database interaction without a heavy abstraction layer |
-
----
-
-## Requirements
-
-- PHP 7.4 or higher
-- A web server with URL rewriting support (Apache `.htaccess` or Nginx config)
-- Composer (optional, for dependency management)
-
----
-
-## Installation
-
-**Clone the repository:**
-
-```bash
-git clone https://github.com/ronmarasigan/lavalust.git
-cd lavalust
-```
-
-**Or download a release directly:**
-
-```bash
-wget https://github.com/ronmarasigan/lavalust/archive/refs/heads/main.zip
-unzip main.zip
-```
-
-Configure your web server to point to the project root and ensure `mod_rewrite` (Apache) or equivalent is enabled.
-
----
-
-## Quick Start
-
-### 1. Define a Route
-
-**File:** `app/config/routes.php`
-
-```php
-$router->get('/', 'Welcome::index');
-$router->get('/about', 'Welcome::about');
-$router->post('/users/store', 'Users::store');
-```
-
-### 2. Create a Controller
-
-**File:** `app/controllers/Welcome.php`
-
-```php
-<?php
-
-class Welcome extends Controller
-{
-    public function index()
-    {
-        $data['title'] = 'Home';
-        $this->call->view('welcome', $data);
-    }
-
-    public function about()
-    {
-        $this->call->view('about');
-    }
-}
-```
-
-### 3. Create a View
-
-**File:** `app/views/welcome.php`
-
-```html
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title><?= $title ?></title>
-</head>
-<body>
-    <h1>Welcome to LavaLust Framework</h1>
-    <p>Lightweight. Fast. MVC.</p>
-</body>
-</html>
-```
-
-### 4. Create a Model
-
-**File:** `app/models/User_model.php`
-
-```php
-<?php
-
-class User_model extends Model
-{
-    protected $table = 'users';
-
-    public function getAll()
-    {
-        return $this->db->table($this->table)->get()->getResult();
-    }
-
-    public function findById(int $id)
-    {
-        return $this->db->table($this->table)
-                        ->where('id', $id)
-                        ->get()
-    }
-}
-```
-
----
-
-## Project Structure
+## How the pieces fit
 
 ```
-lavalust/
-├── app/
-│   ├── config/          # Application configuration (database, routes, etc.)
-│   ├── controllers/     # Controller classes
-│   ├── models/          # Model classes
-│   ├── views/           # View templates
-│   └── libraries/       # Custom libraries and helpers
-├── scheme/              # Core framework files (do not modify)
-├── public/              # Publicly accessible entry point
-│   └── index.php
-└── runtime/            # Cache, logs, and uploads (must be writable)
+Browser ── pretty pages (PHP views) ──► Routes ─► Middleware ─► Controller ─► Model ─► MySQL
+Browser ── React console  /panel     ─► /api (JWT) ─► ApiController ─────────┘
 ```
 
----
+| Layer | Where | What it does |
+|---|---|---|
+| Routes | `app/config/routes.php` | One line per URL; middleware (`csrf`, `guest`, `auth`, `staff`, `admin`) guards groups. |
+| Controllers | `app/controllers/` | Read the request, call models, send a view or JSON. No SQL. |
+| Models | `app/models/` | All database work through the query builder (`$this->db->table(...)`). One model per table. Raw SQL only for two `SELECT … FOR UPDATE` locks in `BookingModel`. |
+| Libraries | `app/libraries/` | Reusable services loaded with `$this->call->library('name')`: `Paymongo`, `Messenger`, `Http_client`, `Qr`, `Integrations`. Settings come from `app/config/integrations.php` (`config_item()`), which reads `.env`. |
+| Support classes | `app/support/` | Small pure helpers (`Money`, `Phone`, `Csv`, `Ics`) autoloaded by **Composer** (`composer.json`, `composer_autoload = TRUE`). |
+| Views | `app/views/` | Server-rendered pages for guests and the classic staff area. |
+| API | `app/controllers/ApiController.php` | JSON endpoints built on LavaLust's `Api` library (JWT access + refresh tokens). |
+| React console | `frontend/` → built into `public/panel/` | Staff and owner console that only talks to `/api`. |
 
-## Configuration
+### Models and what they own
 
-### Database
+`UserModel` (guests, staff, owner) · `RoomTypeModel` · `RoomModel` · `BookingModel` (availability, booking rules, staff actions) · `PaymentModel` · `NotificationModel` · `SettingModel` · `AuditModel` · `LoginAttemptModel` · `OtpModel`.
 
-**File:** `app/config/database.php`
+Every table has create, read, update and delete. Delete rules protect history: a room type with rooms or bookings, a room with bookings, a person with bookings, and a booking that has a payment cannot be deleted (the API answers `409` with the reason). Payments and audit-log rows are never deleted by design (they are the records for the books); payments can be refunded.
 
-```php
-$database['main'] = array(
-    'driver'	=> getenv('DB_DRIVER') ?: '',
-    'hostname'	=> getenv('DB_HOST') ?: '',
-    'port'		=> getenv('DB_PORT') ?: '',
-    'username'	=> getenv('DB_USER') ?: '',
-    'password'	=> getenv('DB_PASSWORD') ?: '',
-    'database'	=> getenv('DB_NAME') ?: '',
-    'charset'	=> getenv('DB_CHARSET') ?: '',
-    'dbprefix'	=> getenv('DB_PREFIX') ?: '',
-    // Optional for SQLite
-    'path'      => ''
-);
+## The JSON API
+
+Base path `/api`. Send `Authorization: Bearer <access token>` and JSON bodies.
+
+| Area | Endpoints | Who |
+|---|---|---|
+| Sign in | `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /me`, `POST /me/password` | staff, owner |
+| Public | `GET /room-types`, `GET /availability?stay=&date=&time=&hours=&guests=` | anyone |
+| Dashboard | `GET /dashboard` | staff |
+| Bookings | `GET /bookings`, `GET /bookings/{ref}`, `POST /bookings` (walk-in), `PUT /bookings/{ref}`, `POST /bookings/{ref}/action` (`checkin`, `checkout`, `cancel`, `resend`, `reassign`), `DELETE /bookings/{ref}` | staff (delete: owner) |
+| Guests | `GET /guests`, `GET /guests/{id}`, `PUT /guests/{id}`, `DELETE /guests/{id}` | staff (delete: owner) |
+| Room types | `GET /types` (staff); `POST`, `PUT /types/{id}`, `DELETE /types/{id}` | owner |
+| Rooms | `GET /rooms` (staff); `POST`, `PUT /rooms/{id}`, `DELETE /rooms/{id}` | owner |
+| Payments | `GET /payments`, `POST /payments/{id}/refund` | owner |
+| Notifications | `GET /notifications`, `POST /notifications/{id}/retry`, `DELETE /notifications/{id}` | owner |
+| Staff | `GET /staff`, `POST /staff`, `PUT /staff/{id}`, `DELETE /staff/{id}` | owner |
+| Settings, reports, audit | `GET/PUT /settings`, `GET /reports`, `GET /audit` | owner |
+
+Access tokens last 15 minutes, refresh tokens 7 days (stored hashed in `refresh_tokens`, rotated on every refresh). The role is read from the database on every request, so disabling a staff account cuts it off immediately. A staff account with a temporary password can only change its password until it does.
+
+## Landing page
+
+`app/views/home/index.php` (sections: hero + search, about, quote, rooms from the database, what we offer, how it works, map, gallery with viewer, guest voices, FAQ, contact) with styles in `public/assets/css/app.css` and behaviour in `public/assets/js/app.js` (no external scripts). Pictures are SVG scenes in `public/assets/img/`: replace them with real photos of the same name or edit the `<img>` paths. Contact details and map places are in `app/config/hotelgo.php` (`hotelgo_contact_*`, `hotelgo_places`, `hotelgo_areas`). Legal pages: `/terms`, `/privacy`, `/cancellation-policy`, `/house-rules` (text in `app/views/home/legal.php`). The guest-voices comments are labelled samples until real reviews exist.
+
+## Run it on your computer (Laragon)
+
+1. Copy `.env.example` to `.env` and fill it in (`APP_KEY`, database, and the two API secrets `JWT_SECRET` and `REFRESH_TOKEN_KEY`). **Never commit `.env`.**
+2. Create the database and run `database/hotelgo.sql` (HeidiSQL → File → Run SQL file). If you already have a database from an older version, run `database/update_api.sql` once instead.
+3. In the project folder run `composer install` (creates `vendor/`).
+4. `php -S localhost:8000 -t public`, then open `http://localhost:8000`.
+5. Staff area: `/admin/login` (first owner account `admin@hotelgo.ph`, temporary password `ChangeMe!2026`, you must change it at first sign-in). React console: `/panel/`.
+
+## React console (frontend/)
+
+The built files are committed in `public/panel/`, so the server needs no Node. To change the console:
+
+```
+cd frontend
+npm install
+npm run build      # writes ../public/panel/  (npm run watch while editing)
 ```
 
-### Base URL
+Source is in `frontend/src/` (React 19, bundled with esbuild). It keeps the access token in memory and the refresh token in `sessionStorage`.
 
-**File:** `app/config/config.php`
+## Deploy on Render
 
-```php
-$config['base_url'] = 'http://localhost:3000/';
-```
+The `Dockerfile` installs PHP 8 + Apache and runs `composer install`. Add these environment variables in Render: everything in `.env.example` that applies, plus `JWT_SECRET` and `REFRESH_TOKEN_KEY` (two different random texts of 32+ characters). Without them only `/api` refuses to start; the rest of the site keeps working.
 
----
+## Security notes
 
-## Building a REST API
-
-LavaLust supports REST API development out of the box. Controllers can return JSON responses for API endpoints.
-
-```php
-<?php
-
-class Api extends Controller
-{
-    $this->call->library('api');
-
-    public function users()
-    {
-        $this->api->require_method('GET');
-        $auth = $this->api->require_jwt(); 
-
-        $this->call->model('User_model');
-        $users = $this->User_model->getAll();
-
-        $this->api->respond(['data' => $users]);
-    }
-}
-```
-
-Route definition:
-
-```php
-$router->get('/api/users', 'Api::users');
-```
-
----
-
-## Philosophy
-
-LavaLust is built on a single principle: **minimal core, maximum control.**
-
-Modern frameworks often add layers of abstraction that benefit large enterprise teams but get in the way of developers who want to understand exactly what their code is doing. LavaLust provides structure and utilities without hiding the underlying logic — making it an excellent choice for:
-
-- **Rapid prototyping** — Get an application running in minutes
-- **Learning MVC** — Understand how each architectural layer works
-- **Lightweight production apps** — Deploy without dragging in unused dependencies
-- **Teaching PHP development** — Clear conventions, readable source code
-
----
-
-## Documentation
-
-Full documentation is available at **[https://lavalust.netlify.app](https://lavalust.netlify.app)**
-
-Topics covered include:
-
-- Installation and server configuration
-- Routing: static, dynamic, and grouped routes
-- Controllers and request handling
-- Models and query builder
-- Views, layouts, and partials
-- Built-in libraries (sessions, form validation, file upload)
-- Helper functions
-- REST API development
-- Security best practices
-
----
-
-## Contributing
-
-Contributions are welcome. To contribute:
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/your-feature-name`
-3. Commit your changes: `git commit -m "Add your feature description"`
-4. Push to your branch: `git push origin feature/your-feature-name`
-5. Open a pull request against `main`
-
-Please ensure your code follows the existing style conventions and includes relevant documentation or comments where appropriate.
-
----
-
-## Roadmap
-
-- [ ] CLI tool for generating controllers, models, and migrations
-- [ ] Middleware support
-- [ ] Improved query builder with relationship support
-- [ ] Enhanced error handling and debugging tools
-
----
-
-## License
-
-LavaLust Framework is open-source software licensed under the **[MIT License](https://opensource.org/licenses/MIT)**.
-
----
-
-## Links
-
-- **GitHub Repository:** [https://github.com/ronmarasigan/lavalust](https://github.com/ronmarasigan/lavalust)
-- **Documentation:** [https://lavalust.netlify.app](https://lavalust.netlify.app)
-- **Report an Issue:** [https://github.com/ronmarasigan/lavalust/issues](https://github.com/ronmarasigan/lavalust/issues)
+Sessions use strict, HTTP-only cookies. All forms carry a CSRF token (the API uses bearer tokens instead). Passwords are hashed. Sign-in and one-time codes are rate limited. Only the last 4 characters of an ID number are stored. Guest records are audited on every view. Card and e-wallet details never touch this server (PayMongo hosted checkout).
