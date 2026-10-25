@@ -56,7 +56,7 @@ Access tokens last 15 minutes, refresh tokens 7 days (stored hashed in `refresh_
 2. Create the database and run `database/hotelgo.sql` (HeidiSQL → File → Run SQL file). If you already have a database from an older version, run `database/update_api.sql` once instead.
 3. In the project folder run `composer install` (creates `vendor/`).
 4. `php -S localhost:8000 -t public`, then open `http://localhost:8000`.
-5. Staff area: `/admin/login` (first owner account `admin@hotelgo.ph`, temporary password `ChangeMe!2026`, you must change it at first sign-in). React console: `/panel/`.
+5. Staff area: the hidden address you set in `STAFF_LOGIN_PATH` (on your own computer, with it empty, `/admin/login` still works; on the real site no address = staff page off) (first owner account `admin@hotelgo.ph`, temporary password `ChangeMe!2026`, you must change it at first sign-in). React console: `/panel/`.
 
 ## React console (frontend/)
 

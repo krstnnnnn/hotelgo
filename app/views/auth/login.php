@@ -5,10 +5,9 @@
     <ul><li>✓ Live room availability and instant room assignment</li><li>✓ Secure online payment</li><li>✓ <?= $staff ? 'Every staff sign-in is recorded in the audit log' : 'Manage or cancel your bookings' ?></li></ul>
     <div class="sun" aria-hidden="true"></div><div class="wave" aria-hidden="true"></div><div class="wave w2" aria-hidden="true"></div><div class="wave w3" aria-hidden="true"></div></div>
   <div class="form"><div class="box">
-    <div class="seg"><a class="btn btn-sm<?= $staff ? ' btn-out' : '' ?>" href="<?= e(site_url('login')) ?>">Guest</a> <a class="btn btn-sm<?= $staff ? '' : ' btn-out' ?>" href="<?= e(site_url('admin/login')) ?>">Staff / Admin</a></div>
-    <h1 style="font-size:2rem;margin-top:16px"><?= $staff ? 'Staff sign in' : 'Welcome back' ?></h1>
+    <h1 style="font-size:2rem"><?= $staff ? 'Staff sign in' : 'Welcome back' ?></h1>
     <p class="mute"><?= $staff ? 'For motel owners and front-desk staff.' : 'Sign in to manage your bookings.' ?></p>
-    <form method="post" action="<?= e(site_url($staff ? 'admin/login' : 'login')) ?>" autocomplete="on"><?= csrf_input() ?>
+    <form method="post" action="<?= e(site_url($staff ? staff_login_path() : 'login')) ?>" autocomplete="on"><?= csrf_input() ?>
       <div class="field"><label for="email">Email</label><input id="email" name="email" type="email" required maxlength="150" autocomplete="username"></div>
       <div class="field"><label for="password">Password</label><input id="password" name="password" type="password" required maxlength="72" autocomplete="current-password">
         <button class="btn btn-sm btn-out" type="button" data-toggle-password="password" style="margin-top:8px">Show / hide</button></div>

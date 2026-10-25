@@ -98,6 +98,7 @@ class ApiController extends Controller
         $ok = password_verify($pass, $hash) && $u && (int) $u['is_active'] === 1 && in_array($u['role'], ['staff', 'admin'], true);
         $this->LoginAttemptModel->record($email, $ok);
         if (!$ok) {
+            usleep(400000);
             $this->fail('Email or password is incorrect.', 401);
         }
         $this->UserModel->touch_login((int) $u['id']);

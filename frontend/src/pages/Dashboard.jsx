@@ -1,3 +1,4 @@
+import { Icon } from '../icons';
 import { api } from '../api';
 import { Loading, Pill, Table, Top, label, peso, useLoad, when } from '../ui';
 
@@ -11,10 +12,10 @@ export default function Dashboard() {
       {x && (
         <>
           <div className="cards">
-            <div className="card stat"><b>{x.occupancy}%</b><span>Occupancy</span></div>
-            <div className="card stat"><b>{x.count.available || 0}</b><span>Rooms ready</span></div>
-            <div className="card stat"><b>{x.checkins_soon}</b><span>Check-ins soon</span></div>
-            <div className="card stat"><b>{peso(x.revenue_today)}</b><span>Paid today</span></div>
+            <div className="card stat"><i className="si t1"><Icon n="occupancy" size={22} /></i><div><b>{x.occupancy}%</b><span>Occupancy</span></div></div>
+            <div className="card stat"><i className="si t2"><Icon n="ready" size={22} /></i><div><b>{x.count.available || 0}</b><span>Rooms ready</span></div></div>
+            <div className="card stat"><i className="si t3"><Icon n="clock" size={22} /></i><div><b>{x.checkins_soon}</b><span>Check-ins soon</span></div></div>
+            <div className="card stat"><i className="si t4"><Icon n="peso" size={22} /></i><div><b>{peso(x.revenue_today)}</b><span>Paid today</span></div></div>
           </div>
           <div className="card" style={{ marginBottom: 18 }}>
             <h2 style={{ marginBottom: 12 }}>Rooms</h2>

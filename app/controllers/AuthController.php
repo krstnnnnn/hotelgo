@@ -11,7 +11,7 @@ class AuthController extends Controller
 
     /* ---------------- login ---------------- */
     public function login_form() { render('auth/login', ['staff' => false, 'title' => 'Sign in']); }
-    public function staff_login_form() { render('auth/login', ['staff' => true, 'title' => 'Staff sign in']); }
+    public function staff_login_form() { render('auth/login', ['staff' => true, 'title' => 'Staff sign in', 'noindex' => true]); }
     public function login() { $this->do_login(false); }
     public function staff_login() { $this->do_login(true); }
 
@@ -26,7 +26,7 @@ class AuthController extends Controller
         if ($ok && $staff && !in_array($u['role'], ['staff', 'admin'], true)) $ok = false;
         if ($ok && !$staff && $u['role'] !== 'guest') $ok = false;      // staff must use the staff sign-in page
         $this->LoginAttemptModel->record($email, $ok);
-        if (!$ok) $this->fail($staff, 'Email or password is incorrect.');
+        if (!$ok) { usleep(400000); $this->fail($staff, 'Email or password is incorrect.'); }   // small delay slows down password guessing
 
         if ($u['role'] === 'guest' && empty($u['mobile_verified_at'])) {
             $_SESSION['pending_uid'] = (int) $u['id'];
@@ -41,7 +41,7 @@ class AuthController extends Controller
     private function fail(bool $staff, string $msg): void
     {
         flash('bad', $msg);
-        go($staff ? 'admin/login' : 'login');
+        go($staff && staff_login_path() !== '' ? staff_login_path() : 'login');
     }
 
     public function logout()
@@ -139,7 +139,7 @@ class AuthController extends Controller
         $this->UserModel->set_password((int) $u['id'], $pass);
         unset($_SESSION['reset_email']);
         flash('ok', 'Password changed. You can sign in now.');
-        go($u['role'] === 'guest' ? 'login' : 'admin/login');
+        go('login');
     }
 
     /* ---------------- change password (also forced for the first admin login) ---------------- */

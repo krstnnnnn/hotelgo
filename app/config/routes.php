@@ -23,12 +23,18 @@ $router->get('/house-rules', 'HomeController::house_rules');
 /* ---------- PayMongo calls this by itself (no browser). Protected by PayMongo's signature, see WebhookController ---------- */
 $router->post('/webhooks/paymongo', 'WebhookController::paymongo');
 
+/* ---------- hidden staff sign-in: address comes from .env (STAFF_LOGIN_PATH), never printed on any page ---------- */
+if (config_item('hotelgo_staff_path') !== '') {
+    $router->group(['middleware' => ['guest']], function ($router) {
+        $router->get('/' . config_item('hotelgo_staff_path'), 'AuthController::staff_login_form');
+        $router->post('/' . config_item('hotelgo_staff_path'), 'AuthController::staff_login');
+    });
+}
+
 /* ---------- sign in / register / reset (only when NOT signed in) ---------- */
 $router->group(['middleware' => ['guest']], function ($router) {
     $router->get('/login', 'AuthController::login_form');
     $router->post('/login', 'AuthController::login');
-    $router->get('/admin/login', 'AuthController::staff_login_form');
-    $router->post('/admin/login', 'AuthController::staff_login');
     $router->get('/register', 'AuthController::register_form');
     $router->post('/register', 'AuthController::register');
     $router->get('/forgot', 'AuthController::forgot_form');

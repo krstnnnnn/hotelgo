@@ -2,6 +2,7 @@ import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { restore, signOut } from './api';
 import { Toasts } from './ui';
+import { Icon, Logo } from './icons';
 import { Availability, ChangePassword, Login } from './pages/Auth';
 import Dashboard from './pages/Dashboard';
 import Bookings from './pages/Bookings';
@@ -18,11 +19,12 @@ function useRoute() {
 }
 
 const NAV = [
-  ['', 'Dashboard', 'staff'], ['bookings', 'Reservations', 'staff'], ['guests', 'Guests', 'staff'], ['availability', 'Availability', 'staff'],
-  ['types', 'Room types', 'staff'], ['rooms', 'Rooms', 'staff'],
-  ['payments', 'Payments', 'admin'], ['notifications', 'Notifications', 'admin'], ['reports', 'Reports', 'admin'], ['staff', 'Staff', 'admin'], ['settings', 'Settings', 'admin'], ['audit', 'Audit log', 'admin'],
-  ['account', 'My account', 'staff'],
+  ['', 'Dashboard', 'staff', 'dashboard'], ['bookings', 'Reservations', 'staff', 'bookings'], ['guests', 'Guests', 'staff', 'guests'], ['availability', 'Availability', 'staff', 'availability'],
+  ['types', 'Room types', 'staff', 'types'], ['rooms', 'Rooms', 'staff', 'rooms'],
+  ['payments', 'Payments', 'admin', 'payments'], ['notifications', 'Notifications', 'admin', 'notifications'], ['reports', 'Reports', 'admin', 'reports'], ['staff', 'Staff', 'admin', 'staff'], ['settings', 'Settings', 'admin', 'settings'], ['audit', 'Audit log', 'admin', 'audit'],
+  ['account', 'My account', 'staff', 'account'],
 ];
+const initials = (n) => String(n || '?').split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
 
 function Shell({ user, route, onOut }) {
   const [open, setOpen] = useState(false);
@@ -49,16 +51,20 @@ function Shell({ user, route, onOut }) {
   return (
     <div className="shell">
       <aside className={'side' + (open ? ' open' : '')}>
-        <div className="brand">HOTEL<span>GO</span></div>
+        <div className="brand"><Logo /><div>HOTEL<span>GO</span><small>Staff console</small></div></div>
         <nav className="nav" onClick={() => setOpen(false)}>
-          {NAV.filter((n) => n[2] === 'staff' || admin).map(([p, t], i) => (
-            <span key={p}>{p === 'payments' && <small>Owner</small>}<a href={'#/' + p} className={(page || '') === p ? 'on' : ''}>{t}</a></span>
+          {NAV.filter((n) => n[2] === 'staff' || admin).map(([p, t, , ic]) => (
+            <span key={p}>{p === 'payments' && <small>Owner</small>}{p === 'account' && <small>Account</small>}<a href={'#/' + p} className={(page || '') === p ? 'on' : ''}><Icon n={ic} />{t}</a></span>
           ))}
         </nav>
-        <div className="who"><b>{user.full_name}</b>{user.role === 'admin' ? 'Owner' : 'Front desk'}<br /><button className="btn small ghost" style={{ marginTop: 8, color: '#fff', borderColor: '#7fa0b0' }} onClick={onOut}>Sign out</button> <a href="../admin" style={{ color: '#9fd0d6', marginLeft: 8, fontSize: 13 }}>Classic site</a></div>
+        <div className="who">
+          <div className="av">{initials(user.full_name)}</div>
+          <div className="wn"><b>{user.full_name}</b><span>{user.role === 'admin' ? 'Owner' : 'Front desk'}</span></div>
+          <button className="ib" title="Sign out" aria-label="Sign out" onClick={onOut}><Icon n="out" /></button>
+        </div>
       </aside>
       <main className="main">
-        <button className="btn small ghost menu-btn" style={{ marginBottom: 10 }} onClick={() => setOpen(!open)}>☰ Menu</button>
+        <button className="btn small ghost menu-btn" style={{ marginBottom: 10 }} onClick={() => setOpen(!open)}><Icon n="menu" size={16} /> Menu</button>
         {view()}
       </main>
     </div>

@@ -1,3 +1,4 @@
+import { Logo } from '../icons';
 import { useState } from 'react';
 import { api, signIn } from '../api';
 import { Err, Field, FormModal, Loading, Top, label, peso, useLoad, useToast } from '../ui';
@@ -11,7 +12,7 @@ export function Login({ onUser }) {
   return (
     <div className="login">
       <form className="card" onSubmit={go}>
-        <div className="brand">HOTEL<span>GO</span></div>
+        <div className="brand"><Logo size={40} /><div>HOTEL<span>GO</span></div></div>
         <p className="muted" style={{ marginTop: 0 }}>Staff console. Sign in with your front-desk or owner account.</p>
         <Err text={err} />
         <Field label="Email"><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" required autoFocus /></Field>

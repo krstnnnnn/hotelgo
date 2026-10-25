@@ -22,6 +22,16 @@ $config['hotelgo_allow_mock_payment']  = getenv('ALLOW_MOCK_PAYMENT') === '1';
 $config['hotelgo_trust_proxy']         = getenv('TRUST_PROXY') === '1';
 $config['hotelgo_app_url']             = rtrim((string) (getenv('APP_URL') ?: ''), '/');
 
+/* Hidden staff door. The owner/staff sign-in page is NOT linked anywhere on the site.
+   STAFF_LOGIN_PATH (in .env) is its secret address, e.g. STAFF_LOGIN_PATH=door-7k3m9q2x  ->  https://yoursite/door-7k3m9q2x
+   Without a valid STAFF_LOGIN_PATH the staff page is OFF on a real site (only 'admin/login' on your own computer). */
+$__slug = trim((string) getenv('STAFF_LOGIN_PATH'), '/');
+if (!preg_match('~^[A-Za-z0-9][A-Za-z0-9_-]{7,60}$~', $__slug) || in_array(strtolower($__slug), ['admin', 'login', 'staff', 'panel', 'api'], true)) {
+    $__slug = (getenv('APP_ENV') === 'production') ? '' : 'admin/login';
+}
+$config['hotelgo_staff_path']          = $__slug;
+unset($__slug);
+
 /* Sign-in protection: wrong tries allowed within the window (seconds) */
 $config['hotelgo_lock_per_account']    = 5;
 $config['hotelgo_lock_per_ip']         = 20;
