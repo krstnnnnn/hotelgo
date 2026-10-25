@@ -26,7 +26,7 @@
     <a class="<?= nav_active('admin/settings') ?>" href="<?= e(site_url('admin/settings')) ?>">Settings</a>
   <?php endif; ?>
   <div class="sec">New</div>
-  <a href="<?= e(base_url('panel/')) ?>">React console ↗</a>
+  <?php if (config_item('hotelgo_frontend_url') !== ''): ?><a href="<?= e(config_item('hotelgo_frontend_url')) ?>" target="_blank" rel="noopener">React console ↗</a><?php endif; ?>
   <div class="me"><b><?= e($_user['full_name']) ?></b><span class="mute"><?= $isAdmin ? 'Admin · Owner' : 'Front desk' ?></span>
     <div class="row" style="margin-top:10px"><a href="<?= e(site_url('')) ?>" style="padding:0;color:#fff">Guest site ↗</a>
     <a href="<?= e(site_url('account/password')) ?>" style="padding:0;color:#fff">Password</a></div>

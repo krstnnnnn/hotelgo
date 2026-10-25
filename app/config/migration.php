@@ -44,7 +44,7 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 | and disable it back when you're done.
 |
 */
-$config['migration_enabled'] = FALSE;
+$config['migration_enabled'] = (php_sapi_name() === 'cli') || getenv('MIGRATION_WEB') === '1';   // CLI always; the browser routes only when MIGRATION_WEB=1 (keep OFF on the real site)
 
 /*
 |--------------------------------------------------------------------------

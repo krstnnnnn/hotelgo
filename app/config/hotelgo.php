@@ -29,6 +29,7 @@ $__slug = trim((string) getenv('STAFF_LOGIN_PATH'), '/');
 if (!preg_match('~^[A-Za-z0-9][A-Za-z0-9_-]{7,60}$~', $__slug) || in_array(strtolower($__slug), ['admin', 'login', 'staff', 'panel', 'api'], true)) {
     $__slug = (getenv('APP_ENV') === 'production') ? '' : 'admin/login';
 }
+$config['hotelgo_frontend_url']       = trim(explode(',', (string) getenv('FRONTEND_URL'))[0]);   // address of the separate React app (optional)
 $config['hotelgo_staff_path']          = $__slug;
 unset($__slug);
 

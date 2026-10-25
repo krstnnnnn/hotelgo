@@ -15,60 +15,24 @@ class Create_users_table {
         if ($this->_lava->dbforge->table_exists('users')) {
             return;
         }
-
         $this->_lava->dbforge
             ->add_field([
-                'id' => [
-                    'type'           => 'INT',
-                    'constraint'     => 11,
-                    'unsigned'       => TRUE,
-                    'auto_increment' => TRUE,
-                    'null'           => FALSE,
-                ],
-                'username' => [
-                    'type'       => 'VARCHAR',
-                    'constraint' => 100,
-                    'null'       => FALSE,
-                ],
-                'email' => [
-                    'type'       => 'VARCHAR',
-                    'constraint' => 255,
-                    'null'       => FALSE,
-                    'unique'     => TRUE,
-                ],
-                'password' => [
-                    'type'       => 'VARCHAR',
-                    'constraint' => 255,
-                    'null'       => FALSE,
-                ],
-                'role' => [
-                    'type'       => 'ENUM',
-                    'constraint' => "'admin','moderator','user'",
-                    'null'       => FALSE,
-                    'default'    => 'user',
-                ],
-                'is_active' => [
-                    'type'       => 'TINYINT',
-                    'constraint' => 1,
-                    'unsigned'   => TRUE,
-                    'null'       => FALSE,
-                    'default'    => 1,
-                ],
-                'created_at' => [
-                    'type'    => 'DATETIME',
-                    'null'    => FALSE,
-                    'default' => 'CURRENT_TIMESTAMP',
-                ],
-                'updated_at' => [
-                    'type'    => 'DATETIME',
-                    'null'    => TRUE,
-                    'default' => NULL,
-                ],
+                'id' => ['type' => 'INT', 'constraint' => 11, 'auto_increment' => TRUE],
+                'full_name' => ['type' => 'VARCHAR', 'constraint' => 120],
+                'email' => ['type' => 'VARCHAR', 'constraint' => 150],
+                'mobile' => ['type' => 'VARCHAR', 'constraint' => 20],
+                'password_hash' => ['type' => 'VARCHAR', 'constraint' => 255],
+                'role' => ['type' => 'VARCHAR', 'constraint' => 10, 'default' => 'guest'],
+                'is_active' => ['type' => 'TINYINT', 'constraint' => 4, 'default' => 1],
+                'must_change_password' => ['type' => 'TINYINT', 'constraint' => 4, 'default' => 0],
+                'mobile_verified_at' => ['type' => 'DATETIME', 'null' => TRUE, 'default' => NULL],
+                'staff_note' => ['type' => 'VARCHAR', 'constraint' => 500, 'null' => TRUE, 'default' => NULL],
+                'last_login_at' => ['type' => 'DATETIME', 'null' => TRUE, 'default' => NULL],
+                'created_at' => ['type' => 'DATETIME'],
             ])
             ->add_key('id', primary: TRUE)
-            ->add_key('username', unique: TRUE, name: 'username_unique')
-            ->add_key('email', name: 'email_idx')
-            ->add_key('role', name: 'role_idx')
+            ->add_key('email', unique: TRUE, name: 'email_unique')
+            ->add_key('mobile', unique: TRUE, name: 'mobile_unique')
             ->create_table('users');
     }
 

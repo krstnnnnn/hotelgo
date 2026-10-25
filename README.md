@@ -1,4 +1,6 @@
-# HOTELGO
+# HOTELGO API (back end)
+
+> This repository is the **back end only** (LavaLust API + the guest website + database migrations). The React staff console is a **separate repository**: `hotelgo-web`. They talk only through HTTP (the API), and each one is deployed on its own.
 
 Motel booking and room management for Puerto Galera, built on **LavaLust 4.7** (PHP 8). Guests search and book by the hour or overnight, pay online, and get a ticket with a QR code. The front desk and the owner run the motel from a staff area. Team 3F1: Bunquin, Castro, Evora, Gayuso (ITE311).
 
@@ -6,7 +8,7 @@ Motel booking and room management for Puerto Galera, built on **LavaLust 4.7** (
 
 ```
 Browser ── pretty pages (PHP views) ──► Routes ─► Middleware ─► Controller ─► Model ─► MySQL
-Browser ── React console  /panel     ─► /api (JWT) ─► ApiController ─────────┘
+Other website: hotelgo-web (React) ── HTTP + JWT ─► /api ─► Api*Controller ──┘   (separate repository)
 ```
 
 | Layer | Where | What it does |
@@ -17,8 +19,9 @@ Browser ── React console  /panel     ─► /api (JWT) ─► ApiController 
 | Libraries | `app/libraries/` | Reusable services loaded with `$this->call->library('name')`: `Paymongo`, `Messenger`, `Http_client`, `Qr`, `Integrations`. Settings come from `app/config/integrations.php` (`config_item()`), which reads `.env`. |
 | Support classes | `app/support/` | Small pure helpers (`Money`, `Phone`, `Csv`, `Ics`) autoloaded by **Composer** (`composer.json`, `composer_autoload = TRUE`). |
 | Views | `app/views/` | Server-rendered pages for guests and the classic staff area. |
-| API | `app/controllers/ApiController.php` | JSON endpoints built on LavaLust's `Api` library (JWT access + refresh tokens). |
-| React console | `frontend/` → built into `public/panel/` | Staff and owner console that only talks to `/api`. |
+| API | `app/controllers/Api*Controller.php` (Auth, Booking, Guest, Catalog, Owner) + `app/support/ApiBase.php` | JSON endpoints built on LavaLust's `Api` library (JWT access + refresh tokens). One controller per area; shared token check and replies live in `ApiBase`. |
+| Migrations | `app/migrations/`, `app/commands/Migration.php`, `MigrationController` | The database structure as code: `php lava migration run`. |
+| CORS | `app/config/config.php` (`security_headers.cors`), `FRONTEND_URL` in `.env` | Lets the React website (and only it) call `/api` from a browser. |
 
 ### Models and what they own
 
@@ -52,27 +55,31 @@ Access tokens last 15 minutes, refresh tokens 7 days (stored hashed in `refresh_
 
 ## Run it on your computer (Laragon)
 
-1. Copy `.env.example` to `.env` and fill it in (`APP_KEY`, database, and the two API secrets `JWT_SECRET` and `REFRESH_TOKEN_KEY`). **Never commit `.env`.**
-2. Create the database and run `database/hotelgo.sql` (HeidiSQL → File → Run SQL file). If you already have a database from an older version, run `database/update_api.sql` once instead.
-3. In the project folder run `composer install` (creates `vendor/`).
-4. `php -S localhost:8000 -t public`, then open `http://localhost:8000`.
-5. Staff area: the hidden address you set in `STAFF_LOGIN_PATH` (on your own computer, with it empty, `/admin/login` still works; on the real site no address = staff page off) (first owner account `admin@hotelgo.ph`, temporary password `ChangeMe!2026`, you must change it at first sign-in). React console: `/panel/`.
+1. Copy `.env.example` to `.env` and fill it in (`APP_KEY`, database, `JWT_SECRET`, `REFRESH_TOKEN_KEY`, and `FRONTEND_URL=http://localhost:5173` for the React app). **Never commit `.env`.**
+2. Create an empty database (for example `hotelgo`).
+3. In the project folder: `composer install` (creates `vendor/`).
+4. Build the tables with the migration command (see below): `php lava migration run`.
+5. `php lava serve` (or `php -S localhost:8000 -t public`), then open `http://localhost:8000`. The API is at `http://localhost:8000/api`.
+6. Staff sign in: the hidden address you set in `STAFF_LOGIN_PATH` (empty on your own computer = `/admin/login`). First owner account `admin@hotelgo.ph`, temporary password `ChangeMe!2026`; you must change it at first sign-in.
 
-## React console (frontend/)
+## Database migrations
 
-The built files are committed in `public/panel/`, so the server needs no Node. To change the console:
+The tables are created by migration files in `app/migrations/` (000 to 012: users, refresh_tokens, room_types, rooms, bookings, payments, notifications, audit_logs, login_attempts, otp_codes, settings, starter data).
 
 ```
-cd frontend
-npm install
-npm run build      # writes ../public/panel/  (npm run watch while editing)
+php lava migration status                              # what is applied / pending
+php lava migration run                                 # run pending migrations
+php lava migration create-migration add_something      # new empty migration file
+php lava migration rollback                            # undo the latest migration
+php lava migration rollback-all                        # undo everything  (development database only!)
+php lava migration refresh                             # rollback-all + run
 ```
 
-Source is in `frontend/src/` (React 19, bundled with esbuild). It keeps the access token in memory and the refresh token in `sessionStorage`.
+CLI → `MigrationController` → routes (`/migrate`, `/status`, …) → `Migration` library → database. The browser routes only answer in the terminal, or when `MIGRATION_WEB=1` is in your local `.env`; on the real site they show a 404 page, because they change the database. To migrate the Aiven database, put the Aiven values in your local `.env` and run `php lava migration run` from your computer. `database/hotelgo.sql` is kept as a manual alternative.
 
 ## Deploy on Render
 
-The `Dockerfile` installs PHP 8 + Apache and runs `composer install`. Add these environment variables in Render: everything in `.env.example` that applies, plus `JWT_SECRET` and `REFRESH_TOKEN_KEY` (two different random texts of 32+ characters). Without them only `/api` refuses to start; the rest of the site keeps working.
+The `Dockerfile` installs PHP 8 + Apache and runs `composer install`. Add these environment variables in Render: everything in `.env.example` that applies, plus `JWT_SECRET` and `REFRESH_TOKEN_KEY` (two different random texts of 32+ characters) and `FRONTEND_URL` (the address of your React website, e.g. `https://hotelgo-web.onrender.com`, no slash at the end). Without `FRONTEND_URL` the browser blocks the React app from calling the API (CORS).
 
 ## Security notes
 
