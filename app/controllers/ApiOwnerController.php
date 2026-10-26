@@ -48,6 +48,13 @@ class ApiOwnerController extends \Hotelgo\Support\ApiBase
         $this->ok(['message' => 'Notification deleted.']);
     }
 
+    /* May the current owner manage this account? Front desk of their hotel, or (platform admin only) a hotel owner */
+    private function managed(array $u): bool
+    {
+        if (!\Hotelgo\Support\Scope::allows($u['hotel_id']) || (int) $u['id'] === (int) $this->me['id']) return false;
+        return $u['role'] === 'staff' || ($u['role'] === 'admin' && !empty($u['hotel_id']) && \Hotelgo\Support\Scope::platform());
+    }
+
     public function staff()
     {
         $this->need('GET'); $this->who('admin');
@@ -58,7 +65,7 @@ class ApiOwnerController extends \Hotelgo\Support\ApiBase
     {
         $this->need('POST'); $this->who('admin');
         $in = $this->body();
-        [$ok, $msg, $temp, $id] = $this->UserModel->create_staff((string) ($in['full_name'] ?? ''), (string) ($in['email'] ?? ''), (string) ($in['mobile'] ?? ''));
+        [$ok, $msg, $temp, $id] = $this->UserModel->create_staff((string) ($in['full_name'] ?? ''), (string) ($in['email'] ?? ''), (string) ($in['mobile'] ?? ''), (int) ($in['hotel_id'] ?? 0), ($in['role'] ?? '') === 'owner' ? 'admin' : 'staff');
         if (!$ok) $this->fail($msg, 422);
         $this->log('staff_created', strtolower((string) $in['email']));
         $this->ok(['message' => 'Staff account created. The temporary password is shown only once.', 'temporary_password' => $temp, 'id' => $id], 201);
@@ -68,7 +75,7 @@ class ApiOwnerController extends \Hotelgo\Support\ApiBase
     {
         $this->need('PUT'); $me = $this->who('admin');
         $u = $this->UserModel->by_id((int) $id);
-        if (!$u || $u['role'] !== 'staff') $this->fail('Staff account not found.', 404);
+        if (!$u || !$this->managed($u)) $this->fail('Staff account not found.', 404);
         $in = $this->body(); $row = [];
         if (isset($in['full_name'])) {
             if (!len_ok(trim((string) $in['full_name']), 2, 120)) $this->fail('Enter the name.', 422);
@@ -90,7 +97,7 @@ class ApiOwnerController extends \Hotelgo\Support\ApiBase
     {
         $this->need('DELETE'); $this->who('admin');
         $u = $this->UserModel->by_id((int) $id);
-        if (!$u || $u['role'] !== 'staff') $this->fail('Staff account not found.', 404);
+        if (!$u || !$this->managed($u)) $this->fail('Staff account not found.', 404);
         [$ok, $why] = $this->UserModel->remove((int) $id);
         if (!$ok) $this->fail($why, 409);
         $this->log('staff_deleted', '#' . (int) $id);
@@ -99,7 +106,7 @@ class ApiOwnerController extends \Hotelgo\Support\ApiBase
 
     public function settings()
     {
-        $this->need('GET'); $this->who('admin');
+        $this->need('GET'); $this->who('platform');
         $this->call->library('integrations');
         $all = $this->SettingModel->all_values();
         $this->ok(['data' => array_intersect_key($all, SettingModel::RULES), 'integrations' => $this->integrations->status()]);
@@ -107,7 +114,7 @@ class ApiOwnerController extends \Hotelgo\Support\ApiBase
 
     public function settings_save()
     {
-        $this->need('PUT'); $this->who('admin');
+        $this->need('PUT'); $this->who('platform');
         $err = $this->SettingModel->save_all($this->body());
         if ($err) $this->fail($err, 422);
         $this->log('settings_saved');

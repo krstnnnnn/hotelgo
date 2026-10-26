@@ -14,6 +14,7 @@
   <button class="burger" type="button" aria-label="Menu" aria-expanded="false" aria-controls="navlinks"><span></span><span></span><span></span></button>
   <nav class="nav-links" id="navlinks" aria-label="Main">
     <?php $h = site_url(''); ?>
+    <a class="link" href="<?= e($h) ?>#hotels">Hotels</a>
     <a class="link<?= nav_active('rooms') ?>" href="<?= e(site_url('rooms')) ?>">Rooms</a>
     <a class="link" href="<?= e($h) ?>#offer">What we offer</a>
     <a class="link" href="<?= e($h) ?>#map">Map</a>

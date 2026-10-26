@@ -23,9 +23,11 @@ class AuditModel extends Model
     /* The newest rows with the name of the person who did it */
     public function recent(int $limit = 300): array
     {
-        return $this->db->table('audit_logs a')
-            ->select('a.id, a.created_at, a.action, a.detail, a.ip, u.full_name, u.role')
+        $this->db->table('audit_logs a')
+            ->select('a.id, a.created_at, a.action, a.detail, a.ip, u.full_name, u.role, h.name AS hotel_name')
             ->left_join('users u', 'u.id = a.user_id')
+            ->left_join('hotels h', 'h.id = u.hotel_id');
+        return \Hotelgo\Support\Scope::limit($this->db, 'u.hotel_id')            // a hotel owner only sees their own hotel's staff activity
             ->order_by('a.id', 'DESC')
             ->limit($limit)
             ->get_all();

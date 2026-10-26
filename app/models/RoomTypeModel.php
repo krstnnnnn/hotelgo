@@ -9,20 +9,33 @@ class RoomTypeModel extends Model
 {
     protected $table = 'room_types';
 
-    const COLUMNS = ['name', 'description', 'amenities', 'max_guests', 'price_3h', 'price_6h', 'price_12h', 'price_overnight', 'cleaning_buffer_min', 'is_active'];
+    const SELECT = 't.id, t.hotel_id, t.name, t.description, t.amenities, t.max_guests, t.price_3h, t.price_6h, t.price_12h, t.price_overnight, t.cleaning_buffer_min, t.is_active';
+
+    const COLUMNS = ['hotel_id', 'name', 'description', 'amenities', 'max_guests', 'price_3h', 'price_6h', 'price_12h', 'price_overnight', 'cleaning_buffer_min', 'is_active'];
 
     /* ---------------- read ---------------- */
-    public function types(bool $onlyActive = true): array
+    /* Room types with their hotel. A signed-in hotel user only gets their own hotel; guests get every active hotel (or one: $hotelId / $area). */
+    public function types(bool $onlyActive = true, int $hotelId = 0, string $area = ''): array
     {
-        $this->db->table($this->table);
+        $this->db->table('room_types t')
+            ->select(self::SELECT . ', h.name AS hotel_name, h.area AS hotel_area, h.address AS hotel_address, h.lat AS hotel_lat, h.lng AS hotel_lng')
+            ->join('hotels h', 'h.id = t.hotel_id');
+        \Hotelgo\Support\Scope::limit($this->db, 't.hotel_id');
         if ($onlyActive) {
-            $this->db->where('is_active', 1);
+            $this->db->where('t.is_active', 1)->where('h.is_active', 1);
         }
-        return $this->db->order_by('price_3h', 'ASC')->get_all();
+        if ($hotelId > 0) {
+            $this->db->where('t.hotel_id', $hotelId);
+        }
+        if ($area !== '') {
+            $this->db->where('h.area', $area);
+        }
+        return $this->db->order_by('h.name', 'ASC')->order_by('t.price_3h', 'ASC')->get_all();
     }
     public function type(int $id): ?array
     {
-        return $this->find($id) ?: null;
+        $t = $this->db->table('room_types t')->select(self::SELECT . ', h.name AS hotel_name, h.area AS hotel_area')->left_join('hotels h', 'h.id = t.hotel_id')->where('t.id', $id)->get() ?: null;
+        return ($t && \Hotelgo\Support\Scope::allows($t['hotel_id'])) ? $t : null;
     }
 
     /* Checks and cleans form / API input. Returns the cleaned columns, or null when something is wrong. */
@@ -35,12 +48,19 @@ class RoomTypeModel extends Model
             'max_guests'          => (int) ($in['max_guests'] ?? 2),
             'cleaning_buffer_min' => (int) ($in['cleaning_buffer_min'] ?? 15),
             'is_active'           => in_array($in['is_active'] ?? 0, [1, '1', true, 'on'], true) ? 1 : 0,
+            'hotel_id'            => 0,
         ];
+        // which hotel: a hotel user is always their own hotel; the platform admin picks one
+        $scope = \Hotelgo\Support\Scope::hotel();
+        $hid   = $scope ?: (int) ($in['hotel_id'] ?? 0);
+        if ($hid > 0 && $this->db->table('hotels')->where('id', $hid)->count() > 0) {
+            $d['hotel_id'] = $hid;
+        }
         foreach (['price_3h', 'price_6h', 'price_12h', 'price_overnight'] as $k) {
             $d[$k] = filter_var((string) ($in[$k] ?? ''), FILTER_VALIDATE_FLOAT, ['options' => ['min_range' => 0, 'max_range' => 100000]]);
         }
         $bad = !len_ok($d['name'], 2, 80) || $d['max_guests'] < 1 || $d['max_guests'] > 20 || $d['cleaning_buffer_min'] < 0 || $d['cleaning_buffer_min'] > 180
-            || in_array(false, [$d['price_3h'], $d['price_6h'], $d['price_12h'], $d['price_overnight']], true);
+            || $d['hotel_id'] < 1 || in_array(false, [$d['price_3h'], $d['price_6h'], $d['price_12h'], $d['price_overnight']], true);
         return $bad ? null : $d;
     }
 

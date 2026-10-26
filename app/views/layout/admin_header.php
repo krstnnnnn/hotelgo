@@ -23,7 +23,7 @@
     <a class="<?= nav_active('admin/reports') ?>" href="<?= e(site_url('admin/reports')) ?>">Reports</a>
     <a class="<?= nav_active('admin/staff') ?>" href="<?= e(site_url('admin/staff')) ?>">Staff &amp; roles</a>
     <a class="<?= nav_active('admin/audit') ?>" href="<?= e(site_url('admin/audit')) ?>">Audit log</a>
-    <a class="<?= nav_active('admin/settings') ?>" href="<?= e(site_url('admin/settings')) ?>">Settings</a>
+    <?php if (\Hotelgo\Support\Scope::hotel() === null): ?><a class="<?= nav_active('admin/settings') ?>" href="<?= e(site_url('admin/settings')) ?>">Settings</a><?php endif; ?>
   <?php endif; ?>
   <div class="sec">New</div>
   <?php if (config_item('hotelgo_frontend_url') !== ''): ?><a href="<?= e(config_item('hotelgo_frontend_url')) ?>" target="_blank" rel="noopener">React console ↗</a><?php endif; ?>

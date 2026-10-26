@@ -125,6 +125,12 @@ $router->group(['prefix' => '/api'], function ($router) {
 
     $router->get('/room-types', 'ApiCatalogController::room_types');          // public
     $router->get('/availability', 'ApiCatalogController::availability');      // public
+    $router->get('/hotels', 'ApiHotelController::hotels');                    // public: the hotels on the platform
+
+    $router->get('/manage/hotels', 'ApiHotelController::manage');
+    $router->post('/manage/hotels', 'ApiHotelController::create');
+    $router->put('/manage/hotels/{id}', 'ApiHotelController::update');
+    $router->delete('/manage/hotels/{id}', 'ApiHotelController::delete');
 
     $router->get('/dashboard', 'ApiBookingController::dashboard');
 

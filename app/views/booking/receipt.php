@@ -1,6 +1,6 @@
 <?php defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed'); ?>
 <div class="container section"><div class="receipt"><div class="row between no-print" style="margin-bottom:16px"><a href="<?= e(site_url('booking/' . $b['booking_ref'])) ?>">← Back to booking</a><button class="btn" type="button" data-print>Print / Save as PDF</button></div>
-<div class="card"><div class="eyebrow">Official receipt</div><h1 style="font-size:2rem"><?= e(setting('motel_name')) ?></h1><p class="mute"><?= e(setting('motel_address')) ?></p>
+<div class="card"><div class="eyebrow">Official receipt</div><h1 style="font-size:2rem"><?= e(hotel_of($b, 'name')) ?></h1><p class="mute"><?= e(hotel_of($b, 'address')) ?></p>
 <table><tr><td>Booking reference</td><td><?= e($b['booking_ref']) ?></td></tr><tr><td>Guest</td><td><?= e($b['guest_name']) ?></td></tr><tr><td>Room</td><td><?= e($b['room_no']) ?> · <?= e($b['type_name']) ?></td></tr>
 <tr><td>Stay</td><td><?= e(stay_label($b)) ?></td></tr><tr><td>Check-in</td><td><?= e(fmt_dt($b['start_at'])) ?></td></tr><tr><td>Check-out</td><td><?= e(fmt_dt($b['end_at'])) ?></td></tr>
 <tr><td>Room rate</td><td><?= e(money($b['room_rate'])) ?></td></tr><tr><td>Online booking fee</td><td><?= e(money($b['booking_fee'])) ?></td></tr><tr><td><b>Total</b></td><td><?= e(money($b['total'])) ?></td></tr>

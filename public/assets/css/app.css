@@ -233,3 +233,4 @@ footer span{display:block;margin:6px 0}
 .lp-foot h4{font-family:'Playfair Display',serif;color:var(--amber);font-size:1.05rem}
 footer{border-top:3px solid var(--teal)}
 .nav .btn{white-space:nowrap}@media(max-width:480px){.nav-in>.row .btn-sm{padding:0 9px;font-size:11px;letter-spacing:.04em}.logo span{font-size:16px}.logo i{width:32px;height:32px}}
+footer h4{font-family:Sora,'DM Sans',sans-serif;letter-spacing:.02em}

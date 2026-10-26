@@ -13,6 +13,22 @@ CREATE TABLE IF NOT EXISTS users (
   mobile_verified_at DATETIME NULL,
   staff_note VARCHAR(500) NULL,
   last_login_at DATETIME NULL,
+  created_at DATETIME NOT NULL,
+  hotel_id INT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS hotels (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(120) NOT NULL,
+  slug VARCHAR(80) NOT NULL UNIQUE,
+  area VARCHAR(80) NULL,
+  address VARCHAR(255) NULL,
+  description VARCHAR(500) NULL,
+  lat DECIMAL(10,6) NOT NULL DEFAULT 13.5188,
+  lng DECIMAL(10,6) NOT NULL DEFAULT 120.9647,
+  phone VARCHAR(30) NULL,
+  email VARCHAR(150) NULL,
+  is_active TINYINT NOT NULL DEFAULT 1,
   created_at DATETIME NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -27,17 +43,20 @@ CREATE TABLE IF NOT EXISTS room_types (
   price_12h DECIMAL(10,2) NOT NULL,
   price_overnight DECIMAL(10,2) NOT NULL,
   cleaning_buffer_min INT NOT NULL DEFAULT 15,
-  is_active TINYINT NOT NULL DEFAULT 1
+  is_active TINYINT NOT NULL DEFAULT 1,
+  hotel_id INT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS rooms (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  room_no VARCHAR(10) NOT NULL UNIQUE,
+  room_no VARCHAR(10) NOT NULL,
   room_type_id INT NOT NULL,
   floor INT NOT NULL DEFAULT 1,
   status VARCHAR(20) NOT NULL DEFAULT 'active',
+  hotel_id INT NULL,
   FOREIGN KEY (room_type_id) REFERENCES room_types(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE UNIQUE INDEX hotel_room_no_unique ON rooms (hotel_id, room_no);
 
 CREATE TABLE IF NOT EXISTS bookings (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -67,6 +86,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   cancelled_at DATETIME NULL,
   checked_in_at DATETIME NULL,
   checked_out_at DATETIME NULL,
+  hotel_id INT NULL,
   FOREIGN KEY (user_id) REFERENCES users(id),
   FOREIGN KEY (room_type_id) REFERENCES room_types(id),
   FOREIGN KEY (room_id) REFERENCES rooms(id)
@@ -74,6 +94,7 @@ CREATE TABLE IF NOT EXISTS bookings (
 CREATE INDEX idx_bookings_room_time ON bookings (room_id, start_at, end_at);
 CREATE INDEX idx_bookings_user ON bookings (user_id);
 CREATE INDEX idx_bookings_status ON bookings (status);
+CREATE INDEX bookings_hotel ON bookings (hotel_id);
 
 CREATE TABLE IF NOT EXISTS payments (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -154,19 +175,37 @@ INSERT INTO settings (skey, svalue) VALUES
  ('motel_lat','13.5188'), ('motel_lng','120.9647'), ('booking_fee','30'), ('hold_minutes','10'),
  ('cancel_hours','2'), ('overnight_start','20:00'), ('overnight_end','12:00');
 
-INSERT INTO room_types (name, description, amenities, max_guests, price_3h, price_6h, price_12h, price_overnight, cleaning_buffer_min) VALUES
- ('Standard Queen','Queen bed, aircon and hot shower.','Aircon, Hot shower, Wi-Fi',2,650,1000,1250,1500,15),
- ('Deluxe Sea View','Queen bed, private balcony and a window facing the bay.','Aircon, Balcony, Parking, Wi-Fi',3,950,1400,1800,2100,15),
- ('Family Suite','Two beds, TV and extra space for a family.','2 beds, Aircon, TV',5,1450,2100,2700,3200,20),
- ('Executive Suite','Large suite with a living area and mini fridge.','Aircon, TV, Mini fridge, Parking',4,1850,2600,3300,3800,20);
+INSERT INTO hotels (name, slug, area, address, description, lat, lng, phone, email, is_active, created_at) VALUES
+ ('Coral Nest Motel','coral-nest-motel','White Beach','White Beach, Puerto Galera, Oriental Mindoro','Simple, clean rooms a short walk from the beach.',13.5188,120.9647,'+639708655964','hotelgoph@gmail.com',1,'2026-01-01 00:00:00'),
+ ('Sabang Reef Lodge','sabang-reef-lodge','Sabang','Sabang Beach Road, Puerto Galera, Oriental Mindoro','Close to the dive shops and the Sabang nightlife.',13.5222,120.9538,'+639708655964','hotelgoph@gmail.com',1,'2026-01-01 00:00:00'),
+ ('Talipanan Garden Inn','talipanan-garden-inn','Talipanan','Talipanan Beach, Puerto Galera, Oriental Mindoro','A quiet inn for families, far from the crowds.',13.4870,120.9031,'+639708655964','hotelgoph@gmail.com',1,'2026-01-01 00:00:00'),
+ ('La Laguna Beach Lodge','la-laguna-beach-lodge','Big La Laguna','Big La Laguna Beach, Puerto Galera, Oriental Mindoro','Beachfront huts next to the quiet end of the bay.',13.5068,120.9762,'+639708655964','hotelgoph@gmail.com',1,'2026-01-01 00:00:00');
 
-INSERT INTO rooms (room_no, room_type_id, floor) VALUES
- ('101',1,1),('102',1,1),('103',1,1),('104',1,1),('105',1,1),('106',1,1),
- ('201',2,2),('202',2,2),('203',2,2),('204',2,2),('205',2,2),('206',2,2),
- ('301',3,3),('302',3,3),('303',3,3),('304',3,3),('305',3,3),('306',3,3),
- ('401',4,4),('402',4,4),('403',4,4),('404',4,4),('405',4,4),('406',4,4);
+INSERT INTO room_types (hotel_id, name, description, amenities, max_guests, price_3h, price_6h, price_12h, price_overnight, cleaning_buffer_min) VALUES
+ (1,'Standard Queen','Queen bed, aircon and hot shower.','Aircon, Hot shower, Wi-Fi',2,650,1000,1250,1500,15),
+ (1,'Deluxe Sea View','Queen bed, private balcony and a window facing the bay.','Aircon, Balcony, Parking, Wi-Fi',3,950,1400,1800,2100,15),
+ (1,'Family Suite','Two beds, TV and extra space for a family.','2 beds, Aircon, TV',5,1450,2100,2700,3200,20),
+ (1,'Executive Suite','Large suite with a living area and mini fridge.','Aircon, TV, Mini fridge, Parking',4,1850,2600,3300,3800,20),
+ (2,'Garden Room','Double bed and fan, beside the garden.','Fan, Hot shower, Wi-Fi',2,550,850,1100,1300,15),
+ (2,'Reef Suite','Aircon suite with a balcony.','Aircon, Balcony, TV, Wi-Fi',4,1250,1900,2400,2800,15),
+ (3,'Standard Double','Aircon room with a double bed.','Aircon, Hot shower',2,600,900,1150,1400,15),
+ (3,'Family Cottage','Two beds and a small kitchen.','2 beds, Aircon, Kitchenette, Parking',6,1500,2200,2800,3300,15),
+ (4,'Beach Hut','Cosy hut a few steps from the sand.','Fan, Hot shower',2,500,800,1000,1200,15),
+ (4,'Seaview Villa','Villa with a terrace facing the sea.','Aircon, Terrace, TV, Wi-Fi',4,1600,2300,2900,3400,15);
 
--- First admin + front-desk staff. Temporary password: ChangeMe!2026  (they MUST change it at first login)
-INSERT INTO users (full_name, email, mobile, password_hash, role, is_active, must_change_password, mobile_verified_at, created_at) VALUES
- ('HOTELGO Admin','admin@hotelgo.ph','+639170000001','$2y$10$vxyXlANjBTeIOTm7ij4wVO8GHECwFLqgg5tVKkhpt800.Rn8TH8Gi','admin',1,1,'2026-01-01 00:00:00','2026-01-01 00:00:00'),
- ('Rico Cruz','rico@hotelgo.ph','+639170000002','$2y$10$vxyXlANjBTeIOTm7ij4wVO8GHECwFLqgg5tVKkhpt800.Rn8TH8Gi','staff',1,1,'2026-01-01 00:00:00','2026-01-01 00:00:00');
+INSERT INTO rooms (hotel_id, room_no, room_type_id, floor) VALUES
+ (1,'101',1,1),(1,'102',1,1),(1,'103',1,1),(1,'104',1,1),(1,'105',1,1),(1,'106',1,1),
+ (1,'201',2,2),(1,'202',2,2),(1,'203',2,2),(1,'204',2,2),(1,'205',2,2),(1,'206',2,2),
+ (1,'301',3,3),(1,'302',3,3),(1,'303',3,3),(1,'304',3,3),(1,'305',3,3),(1,'306',3,3),
+ (1,'401',4,4),(1,'402',4,4),(1,'403',4,4),(1,'404',4,4),(1,'405',4,4),(1,'406',4,4),
+ (2,'101',5,1),(2,'102',5,1),(2,'103',5,1),(2,'104',5,1),(2,'201',6,2),(2,'202',6,2),(2,'203',6,2),(2,'204',6,2),
+ (3,'101',7,1),(3,'102',7,1),(3,'103',7,1),(3,'104',7,1),(3,'201',8,2),(3,'202',8,2),(3,'203',8,2),(3,'204',8,2),
+ (4,'101',9,1),(4,'102',9,1),(4,'103',9,1),(4,'104',9,1),(4,'201',10,2),(4,'202',10,2),(4,'203',10,2),(4,'204',10,2);
+
+-- Platform admin (no hotel = sees every hotel) + one front-desk account per hotel. Temporary password: ChangeMe!2026  (they MUST change it at first login)
+INSERT INTO users (full_name, email, mobile, password_hash, role, is_active, must_change_password, mobile_verified_at, created_at, hotel_id) VALUES
+ ('HOTELGO Admin','admin@hotelgo.ph','+639170000001','$2y$10$vxyXlANjBTeIOTm7ij4wVO8GHECwFLqgg5tVKkhpt800.Rn8TH8Gi','admin',1,1,'2026-01-01 00:00:00','2026-01-01 00:00:00',NULL),
+ ('Rico Cruz','rico@hotelgo.ph','+639170000002','$2y$10$vxyXlANjBTeIOTm7ij4wVO8GHECwFLqgg5tVKkhpt800.Rn8TH8Gi','staff',1,1,'2026-01-01 00:00:00','2026-01-01 00:00:00',1),
+ ('Mia Santos','staff.sabang@hotelgo.ph','+639170000003','$2y$10$vxyXlANjBTeIOTm7ij4wVO8GHECwFLqgg5tVKkhpt800.Rn8TH8Gi','staff',1,1,'2026-01-01 00:00:00','2026-01-01 00:00:00',2),
+ ('Ben Reyes','staff.talipanan@hotelgo.ph','+639170000004','$2y$10$vxyXlANjBTeIOTm7ij4wVO8GHECwFLqgg5tVKkhpt800.Rn8TH8Gi','staff',1,1,'2026-01-01 00:00:00','2026-01-01 00:00:00',3),
+ ('Ana Lim','staff.laguna@hotelgo.ph','+639170000005','$2y$10$vxyXlANjBTeIOTm7ij4wVO8GHECwFLqgg5tVKkhpt800.Rn8TH8Gi','staff',1,1,'2026-01-01 00:00:00','2026-01-01 00:00:00',4);

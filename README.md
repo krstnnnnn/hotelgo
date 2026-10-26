@@ -84,3 +84,23 @@ The `Dockerfile` installs PHP 8 + Apache and runs `composer install`. Add these 
 ## Security notes
 
 Sessions use strict, HTTP-only cookies. All forms carry a CSRF token (the API uses bearer tokens instead). Passwords are hashed. Sign-in and one-time codes are rate limited. Only the last 4 characters of an ID number are stored. Guest records are audited on every view. Card and e-wallet details never touch this server (PayMongo hosted checkout).
+
+
+## Many hotels on one platform
+
+HOTELGO is a central booking platform: **many hotels in different parts of Puerto Galera** share one system.
+
+| Who | `users.role` | `users.hotel_id` | What they see |
+|---|---|---|---|
+| Guest | guest | - | Every active hotel (search by area / hotel) |
+| Front desk | staff | one hotel | Only that hotel's rooms, bookings, guests |
+| Hotel owner | admin | one hotel | Same, plus payments, reports, staff and the hotel's own profile |
+| Platform admin | admin | empty | Every hotel, the Hotels page and the platform settings |
+
+* Tables: `hotels` (name, area, address, map position, contact, visible) and a `hotel_id` column on `room_types`, `rooms`, `bookings` and `users` (migrations `013`-`015`).
+* Room numbers only have to be unique **inside one hotel**.
+* Every query for staff goes through `app/support/Scope.php`, which limits it to the signed-in person's hotel.
+* Public API: `GET /api/hotels`, `GET /api/availability?...&hotel=ID&area=Sabang`, `GET /api/room-types?hotel=ID`.
+* Staff API: `GET/POST /api/manage/hotels`, `PUT/DELETE /api/manage/hotels/{id}`.
+* `php lava migration run` on an existing database keeps all data: the old motel becomes hotel 1 and three sample hotels are added (edit or hide them on the Hotels page).
+* Sample accounts (temporary password `ChangeMe!2026`, changed at first sign-in): `admin@hotelgo.ph` (platform admin), `rico@hotelgo.ph` (Coral Nest Motel), `staff.sabang@hotelgo.ph`, `staff.talipanan@hotelgo.ph`, `staff.laguna@hotelgo.ph`.

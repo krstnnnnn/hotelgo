@@ -122,7 +122,12 @@ function status_class(string $s): string {
 }
 function stay_label(array $b): string { return $b['stay_type'] === 'overnight' ? 'Overnight' : 'Hourly · ' . (int) $b['hours'] . ' hrs'; }
 function csv_safe($v): string { return Csv::safe($v); }   // stops CSV formula injection
-function maps_link(): string { return 'https://www.google.com/maps/dir/?api=1&destination=' . rawurlencode(setting('motel_lat', '13.5188') . ',' . setting('motel_lng', '120.9647')); }   // opens turn-by-turn directions
+/* The hotel of a booking (its name, address, map position ...). Falls back to the old single-motel settings. */
+function hotel_of(?array $b, string $f): string {
+    $v = $b['hotel_' . $f] ?? null;
+    return ($v !== null && $v !== '') ? (string) $v : setting('motel_' . $f, $f === 'lat' ? '13.5188' : ($f === 'lng' ? '120.9647' : ''));
+}
+function maps_link(?array $b = null): string { return 'https://www.google.com/maps/dir/?api=1&destination=' . rawurlencode(hotel_of($b, 'lat') . ',' . hotel_of($b, 'lng')); }   // opens turn-by-turn directions
 
 function nav_active(string $path): string {
     $cur = trim((string) parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH), '/');
@@ -135,6 +140,7 @@ function search_form(array $p): string {
     $stay = $p['stay'] ?? 'hourly'; $times = '';
     for ($m = 0; $m < 1440; $m += 30) { $t = sprintf('%02d:%02d', intdiv($m, 60), $m % 60); $times .= '<option value="' . $t . '"' . ($t === ($p['time'] ?? '19:00') ? ' selected' : '') . '>' . date('g:i A', strtotime($t)) . '</option>'; }
     $hrs = ''; foreach ([3, 6, 12] as $h) $hrs .= '<option value="' . $h . '"' . ((int) ($p['hours'] ?? 3) === $h ? ' selected' : '') . '>' . $h . ' hours</option>';
+    $areaOpts = ''; foreach (lava_instance()->call->model('HotelModel')->areas() as $a) $areaOpts .= '<option' . (($p['area'] ?? '') === $a ? ' selected' : '') . '>' . e($a) . '</option>';
     $g = ''; for ($i = 1; $i <= 10; $i++) $g .= '<option value="' . $i . '"' . ((int) ($p['guests'] ?? 2) === $i ? ' selected' : '') . '>' . $i . ' guest' . ($i > 1 ? 's' : '') . '</option>';
     return '<form method="get" action="' . e(site_url('rooms')) . '"><div class="seg">'
         . '<label><input type="radio" name="stay" value="hourly"' . ($stay === 'hourly' ? ' checked' : '') . '> Hourly</label>'
@@ -143,7 +149,7 @@ function search_form(array $p): string {
         . '<div data-hourly-only><label for="time">Start time</label><select id="time" name="time">' . $times . '</select></div>'
         . '<div data-hourly-only><label for="hours">Duration</label><select id="hours" name="hours">' . $hrs . '</select></div>'
         . '<div><label for="guests">Guests</label><select id="guests" name="guests">' . $g . '</select></div>'
-        . '<div></div><button class="btn btn-amber" type="submit">Check availability</button></div></form>';
+        . '<div><label for="area">Area</label><select id="area" name="area"><option value="">All of Puerto Galera</option>' . $areaOpts . '</select></div><button class="btn btn-amber" type="submit">Check availability</button></div></form>';
 }
 
 /* ---------- absolute address (used inside the QR code) ---------- */
@@ -188,10 +194,10 @@ function notice_label(string $s): string { return ['sent' => 'Sent', 'logged' =>
 function to_local_mobile(string $m): string { return Phone::toLocal($m); }
 
 /* The calendar file (.ics): downloaded on the ticket page AND attached to the confirmation email */
-function ics_content(array $b): string { return Ics::booking($b, setting('motel_name'), setting('motel_address')); }
+function ics_content(array $b): string { return Ics::booking($b, hotel_of($b, 'name'), hotel_of($b, 'address')); }
 
 /* Free map (OpenStreetMap) used when there is no Google Maps key */
-function osm_embed_url(): string {
-    $lat = (float) setting('motel_lat', '13.5188'); $lng = (float) setting('motel_lng', '120.9647'); $d = 0.004;
+function osm_embed_url(?array $b = null): string {
+    $lat = (float) hotel_of($b, 'lat'); $lng = (float) hotel_of($b, 'lng'); $d = 0.004;
     return 'https://www.openstreetmap.org/export/embed.html?bbox=' . rawurlencode(($lng - $d) . ',' . ($lat - $d) . ',' . ($lng + $d) . ',' . ($lat + $d)) . '&layer=mapnik&marker=' . rawurlencode($lat . ',' . $lng);
 }

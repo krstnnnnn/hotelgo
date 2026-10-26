@@ -16,7 +16,8 @@ class ApiCatalogController extends \Hotelgo\Support\ApiBase
     public function room_types()
     {
         $this->need('GET');
-        $this->ok(['data' => $this->RoomTypeModel->types(true)]);
+        $q = $this->api->get_query_params();
+        $this->ok(['data' => $this->RoomTypeModel->types(true, (int) ($q['hotel'] ?? 0), (string) ($q['area'] ?? ''))]);
     }
 
     public function availability()
@@ -30,9 +31,10 @@ class ApiCatalogController extends \Hotelgo\Support\ApiBase
         if (!$w) {
             $this->fail('Choose a valid stay type, date and start time (not in the past, within 60 days).', 422);
         }
-        $avail = $this->BookingModel->availability($w['start'], $w['end']);
+        $hotel = (int) ($q['hotel'] ?? 0); $area = (string) ($q['area'] ?? '');
+        $avail = $this->BookingModel->availability($w['start'], $w['end'], $hotel, $area);
         $rows = [];
-        foreach ($this->RoomTypeModel->types(true) as $t) {
+        foreach ($this->RoomTypeModel->types(true, $hotel, $area) as $t) {
             if ((int) $t['max_guests'] < $guests) continue;
             $t['free']  = $avail[(int) $t['id']] ?? 0;
             $t['price'] = $this->BookingModel->price($t, (string) $q['stay'], (int) $w['hours']);

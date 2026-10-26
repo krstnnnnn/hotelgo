@@ -7,18 +7,19 @@ class ManageController extends Controller
     public function __construct()
     {
         parent::__construct();
-        $this->call->model(['RoomTypeModel', 'RoomModel', 'BookingModel', 'PaymentModel', 'NotificationModel', 'UserModel', 'SettingModel', 'AuditModel']);
+        $this->call->model(['HotelModel', 'RoomTypeModel', 'RoomModel', 'BookingModel', 'PaymentModel', 'NotificationModel', 'UserModel', 'SettingModel', 'AuditModel']);
     }
 
     /* ---------------- rooms & rates ---------------- */
     public function rooms()
     {
         $edit = get_int('edit') ? $this->RoomTypeModel->type(get_int('edit')) : null;
-        render_admin('admin/rooms', ['types' => $this->RoomTypeModel->types(false), 'rooms' => $this->RoomModel->rooms(), 'edit' => $edit, 'title' => 'Rooms & rates']);
+        render_admin('admin/rooms', ['hotels' => $this->HotelModel->all(), 'types' => $this->RoomTypeModel->types(false), 'rooms' => $this->RoomModel->rooms(), 'edit' => $edit, 'title' => 'Rooms & rates']);
     }
     public function save_type()
     {
         $id = post_int('id');
+        if ($id && !$this->RoomTypeModel->type($id)) abort(404);                  // not a type of your hotel
         $d  = $this->RoomTypeModel->clean($_POST);
         if (!$d) { flash('bad', 'Please check the name, guests and prices (numbers only).'); go('admin/rooms' . ($id ? '?edit=' . $id : '')); }
         $this->RoomTypeModel->save($id ?: null, $d);
@@ -37,6 +38,7 @@ class ManageController extends Controller
     {
         $s = post_str('status');
         if (!in_array($s, RoomModel::STATUSES, true)) abort(400, 'Invalid status.');
+        if (!$this->RoomModel->room((int) $id)) abort(404);                        // not a room of your hotel
         $this->RoomModel->set_status((int) $id, $s); audit('room_status', '#' . (int) $id . ' ' . $s);
         flash('ok', 'Room updated.'); go('admin/rooms');
     }
@@ -95,11 +97,11 @@ class ManageController extends Controller
     /* ---------------- staff accounts ---------------- */
     public function staff()
     {
-        render_admin('admin/staff', ['rows' => $this->UserModel->staff_list(), 'title' => 'Staff & roles']);
+        render_admin('admin/staff', ['hotels' => $this->HotelModel->all(), 'rows' => $this->UserModel->staff_list(), 'title' => 'Staff & roles']);
     }
     public function staff_create()
     {
-        [$ok, $msg, $temp] = $this->UserModel->create_staff(post_str('full_name'), post_str('email'), post_str('mobile'));
+        [$ok, $msg, $temp] = $this->UserModel->create_staff(post_str('full_name'), post_str('email'), post_str('mobile'), post_int('hotel_id'));
         if (!$ok) { flash('bad', $msg); go('admin/staff'); }
         audit('staff_created', strtolower(post_str('email')));
         flash('ok', 'Staff account created. Temporary password (shown only once): ' . $temp . ' – the staff member must change it at first login.');
@@ -109,6 +111,8 @@ class ManageController extends Controller
     {
         $id = (int) $id;
         if ($id === (int) current_user()['id']) { flash('bad', 'You cannot disable your own account.'); go('admin/staff'); }
+        $u = $this->UserModel->by_id($id);
+        if (!$u || !\Hotelgo\Support\Scope::allows($u['hotel_id'])) abort(404);       // not an account of your hotel
         $this->UserModel->toggle_staff($id);
         audit('staff_toggled', '#' . $id); flash('ok', 'Staff account updated.'); go('admin/staff');
     }
@@ -120,11 +124,13 @@ class ManageController extends Controller
     }
     public function settings()
     {
+        if (\Hotelgo\Support\Scope::hotel() !== null) abort(404);                    // platform settings: platform admin only
         $this->call->library('integrations');
         render_admin('admin/settings', ['integrations' => $this->integrations->status(), 'keys' => array_keys(SettingModel::RULES), 'title' => 'Settings']);
     }
     public function settings_save()
     {
+        if (\Hotelgo\Support\Scope::hotel() !== null) abort(404);
         $error = $this->SettingModel->save_all($_POST);
         if ($error) { flash('bad', $error); go('admin/settings'); }
         audit('settings_saved'); flash('ok', 'Settings saved.'); go('admin/settings');

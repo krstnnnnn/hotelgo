@@ -7,7 +7,7 @@
   <div class="stack" style="margin-top:20px">
   <?php foreach ($rows as $i => $t): ?>
     <div class="result<?= $t['free'] < 1 ? ' full' : '' ?>"><div class="scene t<?= ($i % 3) + 1 ?>"><i></i></div>
-      <div class="body"><div class="row"><h3 style="margin:0"><?= e($t['name']) ?></h3>
+      <div class="body"><div class="row"><h3 style="margin:0"><?= e($t['name']) ?></h3><span class="pill info"><?= e($t['hotel_name'] ?? '') ?><?= ($t['hotel_area'] ?? '') !== '' ? ' · ' . e($t['hotel_area']) : '' ?></span>
         <?php if ($t['free'] < 1): ?><span class="pill gray">Fully booked</span><?php elseif ($t['free'] <= 2): ?><span class="pill warn">Only <?= (int) $t['free'] ?> left</span><?php else: ?><span class="pill ok"><?= (int) $t['free'] ?> rooms open</span><?php endif; ?></div>
         <p class="mute"><?= e($t['description']) ?></p><div class="chips"><?php foreach (explode(',', (string) $t['amenities']) as $a): ?><span class="chip"><?= e(trim($a)) ?></span><?php endforeach; ?><span class="chip">Max <?= (int) $t['max_guests'] ?> guests</span></div>
         <p class="small mute" style="margin:10px 0 0">Free cancellation until <?= (int) setting('cancel_hours', '2') ?> hours before check-in</p></div>

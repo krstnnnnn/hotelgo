@@ -31,6 +31,7 @@ class ApiBookingController extends \Hotelgo\Support\ApiBase
             'board' => $board, 'checkins_soon' => $this->BookingModel->checkins_soon(),
             'revenue_today' => $this->PaymentModel->total('paid', date('Y-m-d 00:00:00')),
             'upcoming' => $this->BookingModel->upcoming(8),
+            'notes' => array_map(fn($n) => ['channel' => $n['channel'], 'status' => $n['status'], 'to' => mask_mobile($n['recipient']) ?: mask_email($n['recipient']), 'at' => $n['created_at']], $this->NotificationModel->recent(5)),
         ]);
     }
 

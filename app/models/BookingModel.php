@@ -14,7 +14,7 @@ class BookingModel extends Model
     const COLUMNS = 'b.id, b.booking_ref, b.user_id, b.room_type_id, b.room_id, b.stay_type, b.hours, b.start_at, b.end_at, b.guests, '
         . 'b.guest_name, b.guest_mobile, b.guest_email, b.id_type, b.id_last4, b.room_rate, b.booking_fee, b.total, b.status, '
         . 'b.pay_method, b.pay_ref, b.source, b.hold_expires_at, b.created_at, b.cancelled_at, b.checked_in_at, b.checked_out_at, '
-        . 't.name AS type_name, r.room_no';
+        . 'b.hotel_id, t.name AS type_name, r.room_no, h.name AS hotel_name, h.address AS hotel_address, h.lat AS hotel_lat, h.lng AS hotel_lng, h.phone AS hotel_phone';
 
     const STATUSES = ['pending_payment', 'confirmed', 'checked_in', 'checked_out', 'cancelled', 'expired'];
 
@@ -26,10 +26,12 @@ class BookingModel extends Model
     /* The base query: a booking with its room type and room number. Add ->where(...) and ->get() / ->get_all(). */
     private function detailed()
     {
-        return $this->db->table('bookings b')
+        $this->db->table('bookings b')
             ->select(self::COLUMNS)
             ->join('room_types t', 't.id = b.room_type_id')
-            ->left_join('rooms r', 'r.id = b.room_id');
+            ->left_join('rooms r', 'r.id = b.room_id')
+            ->left_join('hotels h', 'h.id = b.hotel_id');
+        return \Hotelgo\Support\Scope::limit($this->db, 'b.hotel_id');            // hotel staff only see their own hotel's bookings
     }
 
     /* The query builder has no "lock these rows" command, so these two small queries are written by hand. */
@@ -109,11 +111,11 @@ class BookingModel extends Model
     }
 
     /* How many rooms are free for each room type */
-    public function availability(string $start, string $end): array
+    public function availability(string $start, string $end, int $hotelId = 0, string $area = ''): array
     {
         $this->expire_holds();
         $out = [];
-        foreach ($this->models('RoomTypeModel')->types() as $t) {
+        foreach ($this->models('RoomTypeModel')->types(true, $hotelId, $area) as $t) {
             $out[(int) $t['id']] = count($this->free_rooms((int) $t['id'], $start, $end, (int) $t['cleaning_buffer_min']));
         }
         return $out;
@@ -145,7 +147,7 @@ class BookingModel extends Model
             $ref = booking_ref();
         } while ($this->db->table($this->table)->where('booking_ref', $ref)->count() > 0);
         $id = (int) $this->insert([
-            'booking_ref' => $ref, 'user_id' => $user['id'] ?? null, 'room_type_id' => $type['id'], 'room_id' => $free[0]['id'],
+            'booking_ref' => $ref, 'user_id' => $user['id'] ?? null, 'hotel_id' => $type['hotel_id'] ?? null, 'room_type_id' => $type['id'], 'room_id' => $free[0]['id'],
             'stay_type' => $stay, 'hours' => $w['hours'], 'start_at' => $w['start'], 'end_at' => $w['end'], 'guests' => $f['guests'],
             'guest_name' => $f['name'], 'guest_mobile' => $f['mobile'], 'guest_email' => $f['email'], 'id_type' => $f['id_type'], 'id_last4' => $f['id_last4'],
             'room_rate' => $rate, 'booking_fee' => $fee, 'total' => $rate + $fee, 'status' => $status, 'pay_method' => $method, 'source' => $source,
@@ -231,7 +233,7 @@ class BookingModel extends Model
     /* Dashboard numbers */
     public function checkins_soon(): int
     {
-        return (int) $this->db->table($this->table)->where('status', 'confirmed')->between('start_at', now_str(), date('Y-m-d H:i:s', time() + 7200))->count();
+        return (int) \Hotelgo\Support\Scope::limit($this->db->table($this->table), 'hotel_id')->where('status', 'confirmed')->between('start_at', now_str(), date('Y-m-d H:i:s', time() + 7200))->count();
     }
     public function upcoming(int $limit = 8): array
     {

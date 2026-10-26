@@ -32,7 +32,7 @@ class ApiAuthController extends \Hotelgo\Support\ApiBase
         $this->UserModel->touch_login((int) $u['id']);
         $this->AuditModel->record((int) $u['id'], 'api_login', $u['role']);
         $tokens = $this->api->issue_tokens(['id' => (int) $u['id'], 'role' => $u['role'], 'scopes' => $u['role'] === 'admin' ? ['read', 'write', 'delete'] : ['read', 'write']]);
-        $this->ok(['tokens' => $tokens, 'user' => $this->publicUser($u)]);
+        $this->ok(['tokens' => $tokens, 'user' => $this->publicUser($this->UserModel->session_user((int) $u['id']) ?: $u)]);
     }
 
     public function refresh()

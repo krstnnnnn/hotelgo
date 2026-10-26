@@ -57,7 +57,7 @@ class ApiGuestController extends \Hotelgo\Support\ApiBase
 
     public function guest_delete($id)
     {
-        $this->need('DELETE'); $this->who('admin');
+        $this->need('DELETE'); $this->who('platform');
         $g = $this->UserModel->guest((int) $id) ?: $this->fail('Guest not found.', 404);
         [$ok, $why] = $this->UserModel->remove((int) $g['id']);
         if (!$ok) $this->fail($why, 409);

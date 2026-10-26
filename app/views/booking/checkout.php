@@ -25,7 +25,7 @@ $sel = $old['pay_method'] ?? 'ewallet'; ?>
     <div class="check" style="margin:18px 0 16px"><input id="agree" type="checkbox" name="agree" value="1" required><label for="agree">I agree to the house rules, cancellation policy and privacy notice.</label></div>
     <button class="btn btn-block btn-lg" type="submit"><?= icon('lock', '#fff', 18) ?> Pay <?= e(money($rate + $fee)) ?> and confirm</button></div>
 </form>
-<aside class="card"><div class="scene t2" style="border-radius:16px;margin-bottom:16px"><i></i></div><h3><?= e($type['name']) ?></h3><p class="mute"><?= e(setting('motel_name')) ?> · Puerto Galera</p>
+<aside class="card"><div class="scene t2" style="border-radius:16px;margin-bottom:16px"><i></i></div><h3><?= e($type['name']) ?></h3><p class="mute"><?= e($type['hotel_name'] ?? setting('motel_name')) ?> · <?= e($type['hotel_area'] ?? 'Puerto Galera') ?></p>
   <div class="stack small"><div class="row between"><span class="mute">Stay</span><b><?= $p['stay'] === 'overnight' ? 'Overnight' : 'Hourly · ' . (int) $w['hours'] . ' hrs' ?></b></div>
   <div class="row between"><span class="mute">Check-in</span><b><?= e(fmt_dt($w['start'])) ?></b></div><div class="row between"><span class="mute">Check-out</span><b><?= e(fmt_dt($w['end'])) ?></b></div>
   <div class="row between"><span class="mute">Guests</span><b><?= (int) $p['guests'] ?></b></div><div class="row between"><span class="mute">Room</span><b style="color:var(--teal)">Assigned after payment</b></div><hr>

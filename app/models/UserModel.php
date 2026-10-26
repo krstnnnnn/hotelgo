@@ -10,7 +10,7 @@ class UserModel extends Model
 {
     protected $table = 'users';
 
-    const SESSION_COLUMNS = 'id, full_name, email, mobile, role, is_active, must_change_password, mobile_verified_at';
+    const SESSION_COLUMNS = 'u.id, u.full_name, u.email, u.mobile, u.role, u.is_active, u.must_change_password, u.mobile_verified_at, u.hotel_id, h.name AS hotel_name';
 
     /* ---------------- read ---------------- */
     public function by_email(string $email): ?array
@@ -28,8 +28,8 @@ class UserModel extends Model
     /* The signed-in person, re-read from the database on every request (an admin can disable an account at any time) */
     public function session_user(int $id): ?array
     {
-        return $this->db->table($this->table)->select(self::SESSION_COLUMNS)
-            ->where('id', $id)->where('is_active', 1)->get() ?: null;
+        return $this->db->table('users u')->select(self::SESSION_COLUMNS)->left_join('hotels h', 'h.id = u.hotel_id')
+            ->where('u.id', $id)->where('u.is_active', 1)->get() ?: null;
     }
     public function touch_login(int $id): void
     {
@@ -37,11 +37,23 @@ class UserModel extends Model
     }
 
     /* Guests with their number of stays and last visit */
+    /* Hotel staff only see guests who booked at their own hotel. Returns null when there is no limit (platform admin). */
+    private function my_guest_ids(): ?array
+    {
+        $h = \Hotelgo\Support\Scope::hotel();
+        if ($h === null) return null;
+        return array_map('intval', array_column($this->db->table('bookings')->select('user_id')->where('hotel_id', $h)->where('user_id', '>', 0)->group_by('user_id')->get_all(), 'user_id'));
+    }
     public function guests(string $search = '', int $limit = 100): array
     {
+        $mine = $this->my_guest_ids();
+        if ($mine !== null && !$mine) return [];
         $this->db->table($this->table)
             ->select('id, full_name, email, mobile, created_at')
             ->where('role', 'guest');
+        if ($mine !== null) {
+            $this->db->in('id', $mine);
+        }
         if ($search !== '') {
             $like = '%' . str_replace(['%', '_'], ['\\%', '\\_'], $search) . '%';
             $mail = strtolower($search);
@@ -69,6 +81,8 @@ class UserModel extends Model
     }
     public function guest(int $id): ?array
     {
+        $mine = $this->my_guest_ids();
+        if ($mine !== null && !in_array($id, $mine, true)) return null;
         return $this->db->table($this->table)
             ->select('id, full_name, email, mobile, created_at, staff_note')
             ->where('id', $id)->where('role', 'guest')->get() ?: null;
@@ -77,15 +91,18 @@ class UserModel extends Model
     /* Staff and owner accounts */
     public function staff_list(): array
     {
-        $rows = $this->db->table($this->table)
-            ->select('id, full_name, email, mobile, role, is_active, last_login_at')
-            ->in('role', ['staff', 'admin'])->order_by('full_name', 'ASC')->get_all();
+        $this->db->table('users u')
+            ->select('u.id, u.full_name, u.email, u.mobile, u.role, u.is_active, u.last_login_at, u.hotel_id, h.name AS hotel_name')
+            ->left_join('hotels h', 'h.id = u.hotel_id')
+            ->in('u.role', ['staff', 'admin']);
+        \Hotelgo\Support\Scope::limit($this->db, 'u.hotel_id');
+        $rows = $this->db->order_by('u.full_name', 'ASC')->get_all();
         usort($rows, fn($a, $b) => strcmp($a['role'], $b['role']));   // admin first, then staff (names stay in order)
         return $rows;
     }
 
     /* ---------------- create ---------------- */
-    public function create(string $name, string $email, string $mobile, string $password, string $role = 'guest', bool $mustChange = false): int
+    public function create(string $name, string $email, string $mobile, string $password, string $role = 'guest', bool $mustChange = false, ?int $hotelId = null): int
     {
         return (int) $this->insert([
             'full_name'            => $name,
@@ -95,20 +112,26 @@ class UserModel extends Model
             'role'                 => $role,
             'is_active'            => 1,
             'must_change_password' => $mustChange ? 1 : 0,
+            'hotel_id'             => $hotelId,
             'created_at'           => now_str(),
         ]);
     }
 
     /* The owner creates a front-desk account with a temporary password. Returns [ok, message, temporary password, id]. */
-    public function create_staff(string $name, string $email, string $mobile): array
+    public function create_staff(string $name, string $email, string $mobile, int $hotelId = 0, string $role = 'staff'): array
     {
+        $role = ($role === 'admin' && \Hotelgo\Support\Scope::platform()) ? 'admin' : 'staff';      // only the platform admin can appoint a hotel owner
+        $hotelId = \Hotelgo\Support\Scope::hotel() ?: $hotelId;                 // a hotel owner can only add staff to their own hotel
+        if ($hotelId < 1 || $this->db->table('hotels')->where('id', $hotelId)->count() < 1) {
+            return [false, 'Choose the hotel this person works for.', '', 0];
+        }
         $email  = strtolower(trim($email));
         $mobile = normalize_mobile($mobile);
         if (!len_ok($name, 2, 120) || !filter_var($email, FILTER_VALIDATE_EMAIL) || !$mobile || $this->by_email($email) || $this->by_mobile($mobile)) {
             return [false, 'Please check the name, email and mobile number (they must be new).', '', 0];
         }
         $temp = bin2hex(random_bytes(5)) . 'A1';
-        $id   = $this->create($name, $email, $mobile, $temp, 'staff', true);
+        $id   = $this->create($name, $email, $mobile, $temp, $role, true, $hotelId);
         $this->mark_verified($id);
         return [true, 'Staff account created.', $temp, $id];
     }
@@ -140,7 +163,7 @@ class UserModel extends Model
     /* Enable / disable a staff account. Returns the new state, or null when it is not a staff account. */
     public function toggle_staff(int $id): ?int
     {
-        $u = $this->db->table($this->table)->select('id, is_active')->where('id', $id)->where('role', 'staff')->get();
+        $u = $this->db->table($this->table)->select('id, is_active')->where('id', $id)->in('role', ['staff', 'admin'])->where('hotel_id', '>', 0)->get();
         if (!$u) {
             return null;
         }
@@ -157,8 +180,8 @@ class UserModel extends Model
         if (!$u) {
             return [false, 'Account not found.'];
         }
-        if ($u['role'] === 'admin') {
-            return [false, 'The owner account cannot be deleted.'];
+        if ($u['role'] === 'admin' && empty($u['hotel_id'])) {
+            return [false, 'The platform admin account cannot be deleted.'];
         }
         if ($this->db->table('bookings')->where('user_id', $id)->count() > 0) {
             return [false, 'This person has bookings. Disable the account instead of deleting it.'];

@@ -14,18 +14,22 @@ class RoomModel extends Model
     /* ---------------- read ---------------- */
     public function rooms(): array
     {
-        return $this->db->table('rooms r')
-            ->select('r.id, r.room_no, r.room_type_id, r.floor, r.status, t.name AS type_name')
+        $this->db->table('rooms r')
+            ->select('r.id, r.room_no, r.room_type_id, r.floor, r.status, r.hotel_id, t.name AS type_name, h.name AS hotel_name')
             ->join('room_types t', 't.id = r.room_type_id')
-            ->order_by('r.room_no', 'ASC')
-            ->get_all();
+            ->left_join('hotels h', 'h.id = r.hotel_id');
+        \Hotelgo\Support\Scope::limit($this->db, 'r.hotel_id');
+        return $this->db->order_by('h.name', 'ASC')->order_by('r.room_no', 'ASC')->get_all();
     }
     public function room(int $id): ?array
     {
-        return $this->db->table('rooms r')
-            ->select('r.id, r.room_no, r.room_type_id, r.floor, r.status, t.name AS type_name')
+        $this->db->table('rooms r')
+            ->select('r.id, r.room_no, r.room_type_id, r.floor, r.status, r.hotel_id, t.name AS type_name, h.name AS hotel_name')
             ->join('room_types t', 't.id = r.room_type_id')
-            ->where('r.id', $id)->get() ?: null;
+            ->left_join('hotels h', 'h.id = r.hotel_id')
+            ->where('r.id', $id);
+        \Hotelgo\Support\Scope::limit($this->db, 'r.hotel_id');
+        return $this->db->get() ?: null;
     }
     /* Rooms of one type that can be sold (not under maintenance) */
     public function active_in_type(int $typeId): array
@@ -34,9 +38,10 @@ class RoomModel extends Model
             ->where('room_type_id', $typeId)->where('status', 'active')
             ->order_by('room_no', 'ASC')->get_all();
     }
-    public function room_no_taken(string $roomNo, int $exceptId = 0): bool
+    /* Room numbers only have to be unique inside one hotel */
+    public function room_no_taken(string $roomNo, int $hotelId, int $exceptId = 0): bool
     {
-        $this->db->table($this->table)->where('room_no', $roomNo);
+        $this->db->table($this->table)->where('room_no', $roomNo)->where('hotel_id', $hotelId);
         if ($exceptId > 0) {
             $this->db->where('id', '<>', $exceptId);
         }
@@ -51,13 +56,14 @@ class RoomModel extends Model
         $ago   = date('Y-m-d H:i:s', time() - 900);
 
         $occupied = $reserved = $cleaning = [];
-        foreach ($this->db->table('bookings')->select('room_id, end_at')->where('status', 'checked_in')->order_by('end_at', 'DESC')->get_all() as $b) {
+        $scoped = fn($q) => \Hotelgo\Support\Scope::limit($q, 'hotel_id');
+        foreach ($scoped($this->db->table('bookings')->select('room_id, end_at')->where('status', 'checked_in'))->order_by('end_at', 'DESC')->get_all() as $b) {
             $occupied[(int) $b['room_id']] ??= $b;
         }
-        foreach ($this->db->table('bookings')->select('room_id, start_at')->where('status', 'confirmed')->where('end_at', '>', $now)->where('start_at', '<=', $soon)->order_by('start_at', 'ASC')->get_all() as $b) {
+        foreach ($scoped($this->db->table('bookings')->select('room_id, start_at')->where('status', 'confirmed')->where('end_at', '>', $now)->where('start_at', '<=', $soon))->order_by('start_at', 'ASC')->get_all() as $b) {
             $reserved[(int) $b['room_id']] ??= $b;
         }
-        foreach ($this->db->table('bookings')->select('room_id')->where('status', 'checked_out')->where('checked_out_at', '>', $ago)->get_all() as $b) {
+        foreach ($scoped($this->db->table('bookings')->select('room_id')->where('status', 'checked_out')->where('checked_out_at', '>', $ago))->get_all() as $b) {
             $cleaning[(int) $b['room_id']] = true;
         }
 
@@ -95,27 +101,29 @@ class RoomModel extends Model
         $no     = trim((string) ($in['room_no'] ?? ''));
         $typeId = (int) ($in['room_type_id'] ?? 0);
         $status = (string) ($in['status'] ?? 'active');
-        if (!preg_match('/^[A-Za-z0-9\-]{1,10}$/', $no) || $this->room_no_taken($no, $exceptId)) {
-            return [null, 'Room number is invalid or already exists.'];
-        }
-        if (!$this->call->model('RoomTypeModel')->type($typeId)) {
+        $type   = $this->call->model('RoomTypeModel')->type($typeId);      // only a type of your own hotel passes
+        if (!$type) {
             return [null, 'Choose a room type.'];
+        }
+        if (!preg_match('/^[A-Za-z0-9\-]{1,10}$/', $no) || $this->room_no_taken($no, (int) $type['hotel_id'], $exceptId)) {
+            return [null, 'Room number is invalid or already exists in this hotel.'];
         }
         if (!in_array($status, self::STATUSES, true)) {
             return [null, 'Invalid status.'];
         }
-        return [['room_no' => $no, 'room_type_id' => $typeId, 'floor' => max(1, min(50, (int) ($in['floor'] ?? 1))), 'status' => $status], ''];
+        return [['hotel_id' => (int) $type['hotel_id'], 'room_no' => $no, 'room_type_id' => $typeId, 'floor' => max(1, min(50, (int) ($in['floor'] ?? 1))), 'status' => $status], ''];
     }
 
     /* ---------------- create / update ---------------- */
     public function add_room(string $roomNo, int $typeId, int $floor): int
     {
-        return (int) $this->insert(['room_no' => $roomNo, 'room_type_id' => $typeId, 'floor' => $floor, 'status' => 'active']);
+        $type = $this->call->model('RoomTypeModel')->type($typeId);
+        return (int) $this->insert(['hotel_id' => $type['hotel_id'] ?? null, 'room_no' => $roomNo, 'room_type_id' => $typeId, 'floor' => $floor, 'status' => 'active']);
     }
     /* $data may hold room_no, room_type_id, floor, status */
     public function save_room(int $id, array $data): void
     {
-        $row = array_intersect_key($data, array_flip(['room_no', 'room_type_id', 'floor', 'status']));
+        $row = array_intersect_key($data, array_flip(['hotel_id', 'room_no', 'room_type_id', 'floor', 'status']));
         if ($row) {
             $this->update($id, $row);
         }

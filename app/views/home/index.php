@@ -8,8 +8,9 @@ $photo = function (string $slot, string $fallback) use ($img): string {
 $mail = (string) config_item('hotelgo_contact_email'); $tel = (string) config_item('hotelgo_contact_phone'); $loc = (string) config_item('hotelgo_contact_location');
 $lat = (float) setting('motel_lat', '13.5188'); $lng = (float) setting('motel_lng', '120.9647'); $motel = setting('motel_name', 'HOTELGO');
 $osm = fn(float $la, float $lo, float $d) => 'https://www.openstreetmap.org/export/embed.html?bbox=' . rawurlencode(($lo - $d) . ',' . ($la - $d * .6) . ',' . ($lo + $d) . ',' . ($la + $d * .6)) . '&layer=mapnik&marker=' . rawurlencode($la . ',' . $lo);
-$places = [['name' => $motel, 'area' => setting('motel_address', $loc), 'lat' => $lat, 'lng' => $lng]];
-foreach ((array) config_item('hotelgo_places') as $pl) { if (isset($pl['lat'], $pl['lng'], $pl['name'])) $places[] = $pl; }
+$places = [];
+foreach ($hotels as $hh) { $places[] = ['name' => $hh['name'], 'area' => trim(($hh['area'] ?? '') . ' · ' . ($hh['address'] ?? ''), ' ·'), 'lat' => (float) $hh['lat'], 'lng' => (float) $hh['lng']]; }
+if (!$places) $places[] = ['name' => $motel, 'area' => setting('motel_address', $loc), 'lat' => $lat, 'lng' => $lng];
 $gallery = [['gallery1', 'g1.svg', 'Sunset over the bay', 'Sunsets'], ['gallery2', 'g5.svg', 'Palm-lined beach', 'Beach'], ['gallery3', 'g3.svg', 'A quiet room with a sea view', 'Rooms'], ['gallery4', 'g4.svg', 'The reefs of Puerto Galera', 'Reefs'], ['gallery5', 'g2.svg', 'Bangka boats at midday', 'Boats'], ['gallery6', 'g6.svg', 'Night terrace under the lanterns', 'Evenings']];
 $offers = [
   ['Hourly or overnight', 'Book 3, 6 or 12 hours, or a full overnight stay. Pay only for the time you need.', 'M12 7v5l3 2M12 3a9 9 0 100 18 9 9 0 000-18z'],
@@ -59,13 +60,20 @@ $voices = [
 <section class="lp-bandq"><img class="lp-bandq-img" src="<?= e($photo('quote', 'g1.svg')) ?>" alt="" loading="lazy" data-parallax2><div class="lp-bandq-shade"></div>
   <div class="container center reveal"><blockquote>“Your stay, your hours.<br>The sea does the rest.”</blockquote><p>HOTELGO · Puerto Galera</p></div></section>
 
+<section class="section" id="hotels"><div class="container"><div class="center"><div class="eyebrow reveal">One platform, many hotels</div><h2 class="reveal">Hotels across <em>Puerto Galera</em></h2>
+  <p class="mute reveal" style="max-width:640px;margin:0 auto">Compare hotels in Sabang, White Beach, Talipanan and more. Pick the area you like, then book a room in one place.</p></div>
+  <div class="grid g3 lp-rooms"><?php foreach ($hotels as $i => $hh): ?>
+    <article class="card flat lp-room reveal d<?= $i % 3 ?>"><div class="lp-room-body"><div class="small mute" style="font-weight:700;letter-spacing:.06em;text-transform:uppercase"><?= e($hh['area'] ?? '') ?></div><h3><?= e($hh['name']) ?></h3><p class="mute small"><?= e($hh['description'] ?? '') ?></p>
+      <div class="lp-prices"><div><span class="small mute">From</span><b><?= e(money($hh['from_price'])) ?> / 3 hrs</b></div><a class="btn btn-sm" href="<?= e(site_url('rooms')) ?>?stay=hourly&amp;date=<?= e(date('Y-m-d')) ?>&amp;time=19:00&amp;hours=3&amp;guests=2&amp;hotel=<?= (int) $hh['id'] ?>">View rooms</a></div></div></article>
+  <?php endforeach; ?></div></div></section>
+
 <section class="section" id="rooms"><div class="container"><div class="center"><div class="eyebrow reveal">Accommodations</div><h2 class="reveal">Our <em>Rooms &amp; Suites</em></h2>
-  <p class="mute reveal" style="max-width:620px;margin:0 auto">Each room is a quiet place to rest. Prices are the room rate; a small online booking fee applies at checkout.</p></div>
+  <p class="mute reveal" style="max-width:620px;margin:0 auto">Each room is a quiet place to rest. Prices are the room rate set by each hotel; a small online booking fee applies at checkout.</p></div>
   <div class="grid g3 lp-rooms"><?php foreach ($types as $i => $t): $fb = ['g3.svg', 'g1.svg', 'g5.svg', 'g4.svg'][$i % 4]; ?>
     <article class="card flat lp-room reveal d<?= $i % 3 ?>"><div class="lp-room-img"><img src="<?= e($photo('room' . ($i % 4 + 1), $fb)) ?>" alt="<?= e($t['name']) ?>" loading="lazy"><span class="lp-tag">From <?= e(money($t['price_3h'])) ?> / 3 hrs</span></div>
-      <div class="lp-room-body"><h3><?= e($t['name']) ?></h3><p class="mute small"><?= e($t['description']) ?></p>
+      <div class="lp-room-body"><div class="small mute" style="font-weight:700;letter-spacing:.06em;text-transform:uppercase"><?= e($t['hotel_name'] ?? '') ?> · <?= e($t['hotel_area'] ?? '') ?></div><h3><?= e($t['name']) ?></h3><p class="mute small"><?= e($t['description']) ?></p>
         <ul class="lp-amen"><?php foreach (array_slice(explode(',', (string) $t['amenities']), 0, 4) as $a): ?><li><?= e(trim($a)) ?></li><?php endforeach; ?><li>Up to <?= (int) $t['max_guests'] ?> guests</li></ul>
-        <div class="lp-prices"><div><span class="small mute">Overnight</span><b><?= e(money($t['price_overnight'])) ?></b></div><a class="btn btn-sm" href="<?= e(site_url('rooms')) ?>?stay=hourly&amp;date=<?= e(date('Y-m-d')) ?>&amp;time=19:00&amp;hours=3&amp;guests=2">Book now</a></div></div></article>
+        <div class="lp-prices"><div><span class="small mute">Overnight</span><b><?= e(money($t['price_overnight'])) ?></b></div><a class="btn btn-sm" href="<?= e(site_url('rooms')) ?>?stay=hourly&amp;date=<?= e(date('Y-m-d')) ?>&amp;time=19:00&amp;hours=3&amp;guests=2&amp;hotel=<?= (int) $t['hotel_id'] ?>">Book now</a></div></div></article>
   <?php endforeach; ?></div></div></section>
 
 <section class="section lp-dark" id="offer"><div class="container"><div class="center"><div class="eyebrow reveal" style="color:#F5A524">What we offer</div><h2 class="reveal">Everything for <em>a short stay</em></h2></div>
@@ -85,7 +93,7 @@ $voices = [
   <p class="mute reveal" style="max-width:640px;margin:0 auto">From the town proper to the beaches and dive spots, pick a place to see it on the map.</p></div>
   <div class="lp-map reveal">
     <div class="lp-map-side">
-      <div class="label" style="margin-bottom:8px">Our motels</div>
+      <div class="label" style="margin-bottom:8px">Our hotels</div>
       <?php foreach ($places as $i => $pl): ?><button type="button" class="lp-place<?= $i === 0 ? ' on' : '' ?>" data-map="<?= e($osm((float) $pl['lat'], (float) $pl['lng'], .012)) ?>"><b><?= e($pl['name']) ?></b><span><?= e($pl['area'] ?? '') ?></span></button><?php endforeach; ?>
       <button type="button" class="lp-place" data-map="<?= e($osm(13.5, 120.954, .075)) ?>"><b>All of Puerto Galera</b><span>The whole municipality</span></button>
       <div class="label" style="margin:16px 0 8px">Explore an area</div>

@@ -23,7 +23,17 @@ class NotificationModel extends Model
     /* ===================================== read / delete ===================================== */
     public function recent(int $limit = 200): array
     {
-        return $this->db->table($this->table)->order_by('id', 'DESC')->limit($limit)->get_all();
+        $this->db->table('notifications n')->select('n.id, n.booking_id, n.user_id, n.channel, n.recipient, n.subject, n.message, n.status, n.error, n.provider_ref, n.created_at, h.name AS hotel_name')->left_join('bookings b', 'b.id = n.booking_id')->left_join('hotels h', 'h.id = b.hotel_id');
+        \Hotelgo\Support\Scope::limit($this->db, 'b.hotel_id');                 // hotel staff only see messages about their own bookings
+        return $this->db->order_by('n.id', 'DESC')->limit($limit)->get_all();
+    }
+    /* Is this message about a booking of the current hotel? (platform admin: always) */
+    private function in_scope(int $id): bool
+    {
+        if (\Hotelgo\Support\Scope::hotel() === null) return true;
+        $n = $this->db->table($this->table)->select('booking_id')->where('id', $id)->get();
+        $b = $n && $n['booking_id'] ? $this->db->table('bookings')->select('hotel_id')->where('id', $n['booking_id'])->get() : null;
+        return $b && \Hotelgo\Support\Scope::allows($b['hotel_id']);
     }
     public function for_booking(int $bookingId): array
     {
@@ -36,7 +46,7 @@ class NotificationModel extends Model
     }
     public function remove(int $id): bool
     {
-        return $this->delete($id) > 0;
+        return $this->in_scope($id) && $this->delete($id) > 0;
     }
 
     /* ===================================== send one message (returns the id of the saved row) ===================================== */
@@ -52,7 +62,7 @@ class NotificationModel extends Model
     public function retry(int $id): bool
     {
         $n = $this->db->table($this->table)->where('id', $id)->where('status', 'failed')->get();
-        if (!$n) {
+        if (!$n || !$this->in_scope($id)) {
             return false;
         }
         $this->send($n['booking_id'] ? (int) $n['booking_id'] : null, $n['user_id'] ? (int) $n['user_id'] : null, (string) $n['channel'], (string) $n['recipient'], (string) $n['subject'], (string) $n['message']);
@@ -73,7 +83,7 @@ class NotificationModel extends Model
         if ($b['guest_email'] === '') return;
         $link = abs_url('booking/' . $b['booking_ref']);
         $text = "Hi " . $b['guest_name'] . ",\n\nYour HOTELGO booking is confirmed.\n\nReference: " . $b['booking_ref'] . "\nRoom: " . $b['room_no'] . ' (' . $b['type_name'] . ")\nCheck-in: " . fmt_dt($b['start_at']) . "\nCheck-out: " . fmt_dt($b['end_at']) . "\nPaid: " . money($b['total']) . "\n\n"
-            . setting('motel_name') . ', ' . setting('motel_address') . "\nDirections: " . maps_link() . "\nYour ticket and receipt: " . $link . "\n\nA calendar file is attached. Show your booking reference and a valid ID at check-in.\n";
+            . hotel_of($b, 'name') . ', ' . hotel_of($b, 'address') . "\nDirections: " . maps_link($b) . "\nYour ticket and receipt: " . $link . "\n\nA calendar file is attached. Show your booking reference and a valid ID at check-in.\n";
         $this->send((int) $b['id'], $this->uid($b), 'email', $b['guest_email'], 'Your HOTELGO booking is confirmed', $text, [
             'html' => $this->confirmation_html($b, $link),
             'attachments' => [['filename' => 'hotelgo-' . $b['booking_ref'] . '.ics', 'mime' => 'text/calendar', 'content' => base64_encode(ics_content($b))]],
@@ -85,11 +95,11 @@ class NotificationModel extends Model
         $row = fn($k, $v) => '<tr><td style="padding:8px 0;color:#4F6574;font-size:14px">' . e($k) . '</td><td style="padding:8px 0;text-align:right;font-weight:700;font-size:14px">' . e($v) . '</td></tr>';
         return '<!doctype html><html><body style="margin:0;background:#F3F7F9;font-family:Arial,Helvetica,sans-serif;color:#0B2233"><div style="max-width:560px;margin:0 auto;padding:24px">'
             . '<div style="background:#0B2233;border-radius:20px 20px 0 0;padding:26px;color:#fff"><div style="font-size:20px;font-weight:800">HOTEL<span style="color:#F5A524">GO</span></div><div style="font-size:24px;font-weight:800;margin-top:14px">You\'re booked, ' . e(explode(' ', $b['guest_name'])[0]) . '!</div><div style="color:#C5D5DD;margin-top:4px">Payment received. Your room is assigned.</div></div>'
-            . '<div style="background:#fff;border-radius:0 0 20px 20px;padding:26px"><div style="font-size:12px;letter-spacing:.12em;color:#0E7C86;font-weight:700">' . e(strtoupper(setting('motel_name'))) . '</div><div style="font-size:40px;font-weight:800;margin:4px 0">Room ' . e($b['room_no']) . '</div><div style="color:#4F6574">' . e($b['type_name']) . '</div>'
+            . '<div style="background:#fff;border-radius:0 0 20px 20px;padding:26px"><div style="font-size:12px;letter-spacing:.12em;color:#0E7C86;font-weight:700">' . e(strtoupper(hotel_of($b, 'name'))) . '</div><div style="font-size:40px;font-weight:800;margin:4px 0">Room ' . e($b['room_no']) . '</div><div style="color:#4F6574">' . e($b['type_name']) . '</div>'
             . '<table style="width:100%;border-collapse:collapse;margin-top:14px;border-top:1px solid #DCE6EB">' . $row('Booking reference', $b['booking_ref']) . $row('Check-in', fmt_dt($b['start_at'])) . $row('Check-out', fmt_dt($b['end_at'])) . $row('Stay', stay_label($b) . ' · ' . (int) $b['guests'] . ' guests') . $row('Paid', money($b['total'])) . '</table>'
             . '<p style="margin:20px 0 8px"><a href="' . e($link) . '" style="display:inline-block;background:#0E7C86;color:#fff;text-decoration:none;font-weight:700;padding:12px 20px;border-radius:12px">View ticket &amp; receipt</a> '
-            . '<a href="' . e(maps_link()) . '" style="display:inline-block;background:#0B2233;color:#fff;text-decoration:none;font-weight:700;padding:12px 20px;border-radius:12px">Get directions</a></p>'
-            . '<p style="color:#4F6574;font-size:13px">' . e(setting('motel_address')) . '<br>A calendar file (reminder 30 minutes before check-in) is attached. Show your booking reference and a valid ID at check-in.</p></div></div></body></html>';
+            . '<a href="' . e(maps_link($b)) . '" style="display:inline-block;background:#0B2233;color:#fff;text-decoration:none;font-weight:700;padding:12px 20px;border-radius:12px">Get directions</a></p>'
+            . '<p style="color:#4F6574;font-size:13px">' . e(hotel_of($b, 'address')) . '<br>A calendar file (reminder 30 minutes before check-in) is attached. Show your booking reference and a valid ID at check-in.</p></div></div></body></html>';
     }
 
     public function booking_cancelled(array $b): void

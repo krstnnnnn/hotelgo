@@ -63,31 +63,35 @@ class PaymentModel extends Model
     }
     public function recent(int $limit = 200): array
     {
-        return $this->db->table('payments p')
-            ->select(self::COLUMNS . ', b.booking_ref, b.guest_name')
+        $this->db->table('payments p')
+            ->select(self::COLUMNS . ', b.booking_ref, b.guest_name, h.name AS hotel_name')
             ->join('bookings b', 'b.id = p.booking_id')
-            ->order_by('p.id', 'DESC')->limit($limit)->get_all();
+            ->left_join('hotels h', 'h.id = b.hotel_id');
+        return \Hotelgo\Support\Scope::limit($this->db, 'b.hotel_id')->order_by('p.id', 'DESC')->limit($limit)->get_all();
     }
     /* Total of one status (optionally only from a time on: paid_at for paid payments) */
     public function total(string $status, string $since = ''): float
     {
-        $this->db->table($this->table)->select_sum('amount', 'total')->where('status', $status);
+        $this->db->table('payments p')->select_sum('p.amount', 'total')->join('bookings b', 'b.id = p.booking_id')->where('p.status', $status);
+        \Hotelgo\Support\Scope::limit($this->db, 'b.hotel_id');
         if ($since !== '') {
-            $this->db->where('paid_at', '>=', $since);
+            $this->db->where('p.paid_at', '>=', $since);
         }
         return (float) ($this->db->get()['total'] ?? 0);
     }
     public function waiting_count(): int
     {
-        return (int) $this->db->table('bookings')->where('status', 'pending_payment')->count();
+        return (int) \Hotelgo\Support\Scope::limit($this->db->table('bookings'), 'hotel_id')->where('status', 'pending_payment')->count();
     }
     /* Paid payments with their stay, for the reports page (dates are Y-m-d, both included) */
     public function paid_between(string $from, string $to): array
     {
-        return $this->db->table('payments p')
-            ->select('p.amount, p.paid_at, b.stay_type, b.hours, b.start_at, t.name AS type_name')
+        $this->db->table('payments p')
+            ->select('p.amount, p.paid_at, b.stay_type, b.hours, b.start_at, t.name AS type_name, h.name AS hotel_name')
             ->join('bookings b', 'b.id = p.booking_id')
             ->join('room_types t', 't.id = b.room_type_id')
+            ->left_join('hotels h', 'h.id = b.hotel_id');
+        return \Hotelgo\Support\Scope::limit($this->db, 'b.hotel_id')
             ->where('p.status', 'paid')
             ->where('p.paid_at', '>=', $from . ' 00:00:00')
             ->where('p.paid_at', '<', date('Y-m-d', strtotime($to . ' +1 day')) . ' 00:00:00')
@@ -98,7 +102,7 @@ class PaymentModel extends Model
     public function report(string $from, string $to): array
     {
         $rows  = $this->paid_between($from, $to);
-        $byDay = []; $byStay = ['hourly' => 0, 'overnight' => 0]; $byType = []; $hours = 0; $hourly = 0; $heat = [];
+        $byDay = []; $byStay = ['hourly' => 0, 'overnight' => 0]; $byType = []; $byHotel = []; $hours = 0; $hourly = 0; $heat = [];
         for ($d = strtotime($from); $d <= strtotime($to); $d += 86400) {
             $byDay[date('Y-m-d', $d)] = ['hourly' => 0, 'overnight' => 0];
         }
@@ -106,13 +110,15 @@ class PaymentModel extends Model
             $day = date('Y-m-d', strtotime($r['paid_at']));
             if (isset($byDay[$day])) $byDay[$day][$r['stay_type']] += (float) $r['amount'];
             $byStay[$r['stay_type']] += (float) $r['amount'];
-            $byType[$r['type_name']] = ($byType[$r['type_name']] ?? 0) + (float) $r['amount'];
+            $label = (\Hotelgo\Support\Scope::hotel() === null && ($r['hotel_name'] ?? '') !== '') ? $r['hotel_name'] . ' · ' . $r['type_name'] : $r['type_name'];
+            $byType[$label] = ($byType[$label] ?? 0) + (float) $r['amount'];
+            $byHotel[$r['hotel_name'] ?? '—'] = ($byHotel[$r['hotel_name'] ?? '—'] ?? 0) + (float) $r['amount'];
             if ($r['stay_type'] === 'hourly') { $hours += (int) $r['hours']; $hourly++; }
             $k = date('w', strtotime($r['start_at'])) . '-' . date('G', strtotime($r['start_at']));
             $heat[$k] = ($heat[$k] ?? 0) + 1;
         }
         return ['from' => $from, 'to' => $to, 'total' => array_sum(array_column($rows, 'amount')), 'count' => count($rows),
-            'byDay' => $byDay, 'byStay' => $byStay, 'byType' => $byType, 'avgHours' => $hourly ? round($hours / $hourly, 1) : 0, 'heat' => $heat];
+            'byDay' => $byDay, 'byStay' => $byStay, 'byType' => $byType, 'byHotel' => $byHotel, 'avgHours' => $hourly ? round($hours / $hourly, 1) : 0, 'heat' => $heat];
     }
 
     /* ======================================================= pay ======================================================= */
@@ -169,7 +175,8 @@ class PaymentModel extends Model
     public function refund(int $paymentId): array
     {
         $p = $this->db->table($this->table)->where('id', $paymentId)->in('status', ['paid', 'refund_pending'])->get();
-        if (!$p) {
+        $bk = $p ? $this->db->table('bookings')->select('hotel_id')->where('id', $p['booking_id'])->get() : null;
+        if (!$p || !$bk || !\Hotelgo\Support\Scope::allows($bk['hotel_id'])) {
             return [false, 'That payment cannot be refunded.'];
         }
         if ($p['provider'] === 'paymongo') {

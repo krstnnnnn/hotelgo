@@ -51,11 +51,15 @@ abstract class ApiBase extends \Controller
             }
             $this->me = $u;
         }
+        \Hotelgo\Support\Scope::set($this->me);          // from here on every query is limited to this person's hotel
         if ((int) $this->me['must_change_password'] === 1 && !$allowTemp) {
             $this->fail('Please change your temporary password first.', 403);
         }
-        if ($min === 'admin' && $this->me['role'] !== 'admin') {
+        if (in_array($min, ['admin', 'platform'], true) && $this->me['role'] !== 'admin') {
             $this->fail('Only the owner can do this.', 403);
+        }
+        if ($min === 'platform' && !empty($this->me['hotel_id'])) {
+            $this->fail('Only the HOTELGO platform admin can do this.', 403);
         }
         return $this->me;
     }
@@ -66,7 +70,9 @@ abstract class ApiBase extends \Controller
     protected function publicUser(array $u): array
     {
         return ['id' => (int) $u['id'], 'full_name' => $u['full_name'], 'email' => $u['email'], 'mobile' => $u['mobile'],
-            'role' => $u['role'], 'must_change_password' => (int) $u['must_change_password']];
+            'role' => $u['role'], 'must_change_password' => (int) $u['must_change_password'],
+            'hotel_id' => !empty($u['hotel_id']) ? (int) $u['hotel_id'] : null, 'hotel_name' => $u['hotel_name'] ?? null,
+            'platform' => $u['role'] === 'admin' && empty($u['hotel_id'])];
     }
     protected function strip(array $row, array $drop = ['password_hash']): array
     {
