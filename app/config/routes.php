@@ -14,8 +14,6 @@ $router->add_global_middleware('csrf');
 
 /* ---------- public pages ---------- */
 $router->get('/', 'HomeController::index');
-$router->get('/photo/{id}', 'PhotoController::show');
-$router->where_number('id');
 $router->get('/rooms', 'HomeController::rooms');
 $router->get('/terms', 'HomeController::terms');
 $router->get('/privacy', 'HomeController::privacy');
@@ -128,8 +126,6 @@ $router->group(['prefix' => '/api'], function ($router) {
     $router->get('/room-types', 'ApiCatalogController::room_types');          // public
     $router->get('/availability', 'ApiCatalogController::availability');      // public
     $router->get('/hotels', 'ApiHotelController::hotels');                    // public: the hotels on the platform
-    $router->get('/photos', 'ApiPhotoController::site');                      // public: the home-page pictures
-    $router->post('/manage/photos', 'ApiPhotoController::save');             // upload / remove a picture
 
     $router->get('/manage/hotels', 'ApiHotelController::manage');
     $router->post('/manage/hotels', 'ApiHotelController::create');
