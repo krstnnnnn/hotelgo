@@ -234,3 +234,5 @@ footer span{display:block;margin:6px 0}
 footer{border-top:3px solid var(--teal)}
 .nav .btn{white-space:nowrap}@media(max-width:480px){.nav-in>.row .btn-sm{padding:0 9px;font-size:11px;letter-spacing:.04em}.logo span{font-size:16px}.logo i{width:32px;height:32px}}
 footer h4{font-family:Sora,'DM Sans',sans-serif;letter-spacing:.02em}
+
+.scene.photo:before,.scene.photo:after{display:none}.scene.photo img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
