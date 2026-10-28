@@ -27,8 +27,7 @@ $config['hotelgo_app_url']             = rtrim((string) (getenv('APP_URL') ?: ''
    Without a valid STAFF_LOGIN_PATH the staff page is OFF on a real site (only 'admin/login' on your own computer). */
 $__slug = trim((string) getenv('STAFF_LOGIN_PATH'), '/');
 if (!preg_match('~^[A-Za-z0-9][A-Za-z0-9_-]{7,60}$~', $__slug) || in_array(strtolower($__slug), ['admin', 'login', 'staff', 'panel', 'api'], true)) {
-    $__prod = (getenv('APP_ENV') ?: 'production') === 'production';
-    $__slug = $__prod ? '' : 'admin/login';
+    $__slug = (getenv('APP_ENV') === 'production') ? '' : 'admin/login';
 }
 $config['hotelgo_frontend_url']       = trim(explode(',', (string) getenv('FRONTEND_URL'))[0]);   // address of the separate React app (optional)
 $config['hotelgo_staff_path']          = $__slug;

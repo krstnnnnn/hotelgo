@@ -2,8 +2,6 @@
 ARG PHP_VERSION=8.5
 FROM php:${PHP_VERSION}-apache
 
-ENV APP_ENV=production
-
 # Database driver (MySQL / Aiven)
 RUN docker-php-ext-install pdo pdo_mysql
 
