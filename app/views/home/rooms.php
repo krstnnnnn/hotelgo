@@ -6,7 +6,8 @@
   <div class="flash info">You choose a room <b>type</b>. The exact room is <b>assigned automatically</b> and sent to you by SMS and email.</div>
   <div class="stack" style="margin-top:20px">
   <?php foreach ($rows as $i => $t): ?>
-    <div class="result<?= $t['free'] < 1 ? ' full' : '' ?>"><div class="scene t<?= ($i % 3) + 1 ?>"><i></i></div>
+    <div class="result<?= $t['free'] < 1 ? ' full' : '' ?>"><?php $pu = photo_url($t['image_id'] ?? 0) ?: photo_url($t['hotel_image_id'] ?? 0); ?>
+      <?php if ($pu !== ''): ?><div class="scene photo"><img src="<?= e($pu) ?>" alt="<?= e($t['name']) ?>" loading="lazy"></div><?php else: ?><div class="scene t<?= ($i % 3) + 1 ?>"><i></i></div><?php endif; ?>
       <div class="body"><div class="row"><h3 style="margin:0"><?= e($t['name']) ?></h3><span class="pill info"><?= e($t['hotel_name'] ?? '') ?><?= ($t['hotel_area'] ?? '') !== '' ? ' · ' . e($t['hotel_area']) : '' ?></span>
         <?php if ($t['free'] < 1): ?><span class="pill gray">Fully booked</span><?php elseif ($t['free'] <= 2): ?><span class="pill warn">Only <?= (int) $t['free'] ?> left</span><?php else: ?><span class="pill ok"><?= (int) $t['free'] ?> rooms open</span><?php endif; ?></div>
         <p class="mute"><?= e($t['description']) ?></p><div class="chips"><?php foreach (explode(',', (string) $t['amenities']) as $a): ?><span class="chip"><?= e(trim($a)) ?></span><?php endforeach; ?><span class="chip">Max <?= (int) $t['max_guests'] ?> guests</span></div>

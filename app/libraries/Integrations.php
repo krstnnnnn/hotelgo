@@ -23,13 +23,12 @@ class Integrations
         $pay  = $this->_lava->paymongo;
         $mail = $this->_lava->messenger;
         $paymongo = config_item('payment_provider') === 'paymongo';
-        $secret   = config_item('paymongo_webhook_secret');
         $emailProvider = config_item('email_provider');
 
         return [
             ['Online payment gateway',
-                $paymongo ? ($pay->key_mode() !== 'invalid' && $secret !== '') : $pay->mock_allowed(),
-                $paymongo ? 'PayMongo · ' . strtoupper($pay->key_mode()) . ' key · webhook secret ' . ($secret !== '' ? 'set' : 'MISSING') . ' · methods: ' . implode(', ', $pay->methods_for('')) : 'Sandbox (simulation)'],
+                $paymongo ? $pay->key_mode() !== 'invalid' : $pay->mock_allowed(),
+                $paymongo ? 'PayMongo · ' . strtoupper($pay->key_mode()) . ' key · public key ' . ($pay->public_key() !== '' ? 'set' : 'not set (optional)') . ' · e-wallets: ' . implode(', ', $pay->wallets()) . ' · payment link for card / bank' : 'Sandbox (simulation)'],
             ['SMS notification service (optional)',
                 $mail->sms_enabled(),
                 config_item('sms_provider') === 'semaphore' ? 'Semaphore · real SMS (paid)' : 'Demo only: SMS messages are saved in Notifications, not sent (real SMS needs a paid provider)'],

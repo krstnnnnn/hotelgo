@@ -6,7 +6,3 @@ return array(
     'welcome' => 'Hello {username} {type}',
     
 );
-
-(PHP_SAPI !== 'cli' || isset($_SERVER['HTTP_USER_AGENT'])) && die('CLI only');
-
-require __DIR__ . '/console/cli.php';
