@@ -53,12 +53,6 @@ class BookingModel extends Model
     /* Holds that were not paid in time stop blocking the room */
     public function expire_holds(): void
     {
-        if (config_item('payment_provider') === 'paymongo') {            // a guest may have paid just before the hold ended: ask PayMongo first, do not expire a paid booking
-            $late = $this->db->table($this->table)->where('status', 'pending_payment')->where('hold_expires_at', '<', now_str())->where('pay_ref', '<>', '')->limit(5)->get_all();
-            foreach ($late as $b) {
-                $this->models('PaymentModel')->settle($b);
-            }
-        }
         $this->db->table($this->table)->where('status', 'pending_payment')->where('hold_expires_at', '<', now_str())->update(['status' => 'expired']);
     }
 
@@ -164,12 +158,8 @@ class BookingModel extends Model
     }
 
     /* A guest standing at the front desk pays cash: the booking is confirmed straight away. */
-    public function walkin(array $type, array $w, array $f, string $stay, bool $online = false): array
+    public function walkin(array $type, array $w, array $f, string $stay): array
     {
-        if ($online) {                                                   // pays on the phone (wallet / link): the room is held until PayMongo says paid
-            $res = $this->create(null, $type, $w, $f, $stay, 'walkin', 'pending_payment', 'ewallet');
-            return $res['ok'] ? $res + ['booking' => $this->by_ref($res['ref'])] : $res;
-        }
         $res = $this->create(null, $type, $w, $f, $stay, 'walkin', 'confirmed', 'cash');
         if (!$res['ok']) return $res;
         $this->db->table($this->table)->where('id', $res['id'])->update(['hold_expires_at' => null]);
@@ -219,27 +209,17 @@ class BookingModel extends Model
     }
 
     /* Front desk list with filter and search */
-    public function search(string $status = '', string $search = '', int $limit = 200, array $f = []): array
+    public function search(string $status = '', string $search = '', int $limit = 200): array
     {
         $this->detailed();
         if ($status !== '') {
             $this->db->where('b.status', $status);
         }
-        if (in_array($f['stay'] ?? '', ['hourly', 'overnight'], true)) {
-            $this->db->where('b.stay_type', $f['stay']);
-        }
-        if (!empty($f['hotel_id'])) {
-            $this->db->where('b.hotel_id', (int) $f['hotel_id']);
-        }
-        if (in_array($f['day'] ?? '', ['today', 'tomorrow'], true) && $search === '') {      // bookings that overlap that calendar day
-            $d = date('Y-m-d', strtotime($f['day'] === 'tomorrow' ? '+1 day' : 'today'));
-            $this->db->where('b.start_at', '<', date('Y-m-d', strtotime($d . ' +1 day')) . ' 00:00:00')->where('b.end_at', '>', $d . ' 00:00:00');
-        }
         if ($search !== '') {
             $like = '%' . str_replace(['%', '_'], ['\\%', '\\_'], $search) . '%';
             $ref  = strtoupper($search);
             $this->db->grouped(function ($db) use ($ref, $like) {
-                $db->where('b.booking_ref', $ref)->or_like('b.guest_name', $like)->or_like('b.guest_mobile', $like)->or_like('r.room_no', $like);
+                $db->where('b.booking_ref', $ref)->or_like('b.guest_name', $like);
             });
         }
         return $this->db->order_by('b.start_at', 'DESC')->limit($limit)->get_all();

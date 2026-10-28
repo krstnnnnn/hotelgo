@@ -12,9 +12,9 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 
 /* 1. Online payment gateway: mock (sandbox page) or paymongo (use TEST keys first) */
 $config['payment_provider']        = getenv('PAYMENT_PROVIDER') ?: 'mock';
-$config['paymongo_public_key']     = (string) (getenv('PAYMONGO_PUBLIC_KEY') ?: getenv('PAYMENT_PUBLIC_KEY'));
-$config['paymongo_secret_key']     = (string) (getenv('PAYMONGO_SECRET_KEY') ?: getenv('PAYMENT_SECRET_KEY'));
-$config['paymongo_methods']        = getenv('PAYMONGO_METHODS') ?: 'gcash,paymaya,grab_pay,shopeepay';   /* e-wallets to offer; card / bank always go through the payment link */
+$config['paymongo_secret_key']     = (string) getenv('PAYMONGO_SECRET_KEY');
+$config['paymongo_webhook_secret'] = (string) getenv('PAYMONGO_WEBHOOK_SECRET');
+$config['paymongo_methods']        = getenv('PAYMONGO_METHODS') ?: 'gcash,paymaya,card';
 $config['paymongo_api']            = 'https://api.paymongo.com/v1';
 
 /* 2. SMS notification service (optional and paid): log (demo) or semaphore */

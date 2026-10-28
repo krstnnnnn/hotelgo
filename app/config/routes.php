@@ -14,8 +14,6 @@ $router->add_global_middleware('csrf');
 
 /* ---------- public pages ---------- */
 $router->get('/', 'HomeController::index');
-$router->get('/photo/{id}', 'PhotoController::show');
-$router->where_number('id');
 $router->get('/rooms', 'HomeController::rooms');
 $router->get('/terms', 'HomeController::terms');
 $router->get('/privacy', 'HomeController::privacy');
@@ -30,6 +28,8 @@ $router->get('rollback-all', 'MigrationController::rollback_all');
 $router->get('refresh', 'MigrationController::refresh');
 $router->get('status', 'MigrationController::status');
 
+/* ---------- PayMongo calls this by itself (no browser). Protected by PayMongo's signature, see WebhookController ---------- */
+$router->post('/webhooks/paymongo', 'WebhookController::paymongo');
 
 /* ---------- hidden staff sign-in: address comes from .env (STAFF_LOGIN_PATH), never printed on any page ---------- */
 if (config_item('hotelgo_staff_path') !== '') {
@@ -64,9 +64,6 @@ $router->group(['middleware' => ['auth']], function ($router) {
     $router->post('/book', 'BookingController::checkout');
     $router->get('/pay/{ref}', 'BookingController::pay');
     $router->post('/pay/{ref}/confirm', 'BookingController::pay_confirm');
-    $router->post('/pay/{ref}/wallet', 'BookingController::pay_wallet');
-    $router->post('/pay/{ref}/link', 'BookingController::pay_link');
-    $router->get('/pay/{ref}/status', 'BookingController::pay_status');
     $router->get('/pay/{ref}/return', 'BookingController::pay_return');
     $router->get('/my-bookings', 'BookingController::mine_list');
     $router->get('/booking/{ref}', 'BookingController::show');
@@ -129,8 +126,6 @@ $router->group(['prefix' => '/api'], function ($router) {
     $router->get('/room-types', 'ApiCatalogController::room_types');          // public
     $router->get('/availability', 'ApiCatalogController::availability');      // public
     $router->get('/hotels', 'ApiHotelController::hotels');                    // public: the hotels on the platform
-    $router->get('/photos', 'ApiPhotoController::site');                      // public: the home-page pictures
-    $router->post('/manage/photos', 'ApiPhotoController::save');             // upload / remove a picture
 
     $router->get('/manage/hotels', 'ApiHotelController::manage');
     $router->post('/manage/hotels', 'ApiHotelController::create');
@@ -145,7 +140,6 @@ $router->group(['prefix' => '/api'], function ($router) {
     $router->put('/bookings/{ref}', 'ApiBookingController::booking_update');
     $router->delete('/bookings/{ref}', 'ApiBookingController::booking_delete');
     $router->post('/bookings/{ref}/action', 'ApiBookingController::booking_action');
-    $router->post('/bookings/{ref}/pay', 'ApiBookingController::booking_pay');
 
     $router->get('/guests', 'ApiGuestController::guests');
     $router->get('/guests/{id}', 'ApiGuestController::guest');

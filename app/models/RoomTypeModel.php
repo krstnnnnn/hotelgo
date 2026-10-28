@@ -9,7 +9,7 @@ class RoomTypeModel extends Model
 {
     protected $table = 'room_types';
 
-    const SELECT = 't.id, t.hotel_id, t.name, t.description, t.amenities, t.max_guests, t.price_3h, t.price_6h, t.price_12h, t.price_overnight, t.cleaning_buffer_min, t.is_active, t.image_id';
+    const SELECT = 't.id, t.hotel_id, t.name, t.description, t.amenities, t.max_guests, t.price_3h, t.price_6h, t.price_12h, t.price_overnight, t.cleaning_buffer_min, t.is_active';
 
     const COLUMNS = ['hotel_id', 'name', 'description', 'amenities', 'max_guests', 'price_3h', 'price_6h', 'price_12h', 'price_overnight', 'cleaning_buffer_min', 'is_active'];
 
@@ -18,7 +18,7 @@ class RoomTypeModel extends Model
     public function types(bool $onlyActive = true, int $hotelId = 0, string $area = ''): array
     {
         $this->db->table('room_types t')
-            ->select(self::SELECT . ', h.name AS hotel_name, h.area AS hotel_area, h.address AS hotel_address, h.lat AS hotel_lat, h.lng AS hotel_lng, h.image_id AS hotel_image_id')
+            ->select(self::SELECT . ', h.name AS hotel_name, h.area AS hotel_area, h.address AS hotel_address, h.lat AS hotel_lat, h.lng AS hotel_lng')
             ->join('hotels h', 'h.id = t.hotel_id');
         \Hotelgo\Support\Scope::limit($this->db, 't.hotel_id');
         if ($onlyActive) {
@@ -34,7 +34,7 @@ class RoomTypeModel extends Model
     }
     public function type(int $id): ?array
     {
-        $t = $this->db->table('room_types t')->select(self::SELECT . ', h.name AS hotel_name, h.area AS hotel_area, h.image_id AS hotel_image_id')->left_join('hotels h', 'h.id = t.hotel_id')->where('t.id', $id)->get() ?: null;
+        $t = $this->db->table('room_types t')->select(self::SELECT . ', h.name AS hotel_name, h.area AS hotel_area')->left_join('hotels h', 'h.id = t.hotel_id')->where('t.id', $id)->get() ?: null;
         return ($t && \Hotelgo\Support\Scope::allows($t['hotel_id'])) ? $t : null;
     }
 
@@ -89,8 +89,6 @@ class RoomTypeModel extends Model
         if ($this->db->table('bookings')->where('room_type_id', $id)->count() > 0) {
             return [false, 'This type has bookings in the history. Untick "Visible to guests" instead of deleting it.'];
         }
-        $img = (int) ($this->find($id)['image_id'] ?? 0);
-        if ($img > 0) $this->db->table('images')->where('id', $img)->delete();
         $this->delete($id);
         return [true, 'Room type deleted.'];
     }

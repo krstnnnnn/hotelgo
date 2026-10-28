@@ -71,7 +71,6 @@ class BookingController extends Controller
     }
 
     /* ---------------- step 2: payment ---------------- */
-    /* The pay page. Mock: sandbox page. PayMongo: choose an e-wallet or a payment link. */
     public function pay($ref)
     {
         $this->mine($ref);
@@ -79,57 +78,13 @@ class BookingController extends Controller
         $b = $this->mine($ref);
         if ($b['status'] === 'confirmed') go('booking/' . $ref);
         if ($b['status'] !== 'pending_payment') { flash('bad', 'This booking is no longer open for payment.'); go('my-bookings'); }
-        if ($this->paymongo->provider() === 'paymongo') {
-            $s = $this->PaymentModel->settle($b);                                    // maybe it was paid already
-            if ($s['result']) $this->finish_payment($s['result']);
-            render('payment/choose', ['b' => $b, 'wallets' => $this->paymongo->wallets(), 'title' => 'Pay for your room']);
-            return;
+        $url = $this->PaymentModel->start($b);
+        if (!$url) {
+            if ($this->PaymentModel->error !== '') audit('payment_start_failed', $this->PaymentModel->error);       // the owner can read the reason in the Audit log
+            flash('bad', 'Online payment is not available right now. Please try again in a moment or contact the motel.'); go('my-bookings');
         }
-        if (!$this->PaymentModel->start($b)) { flash('bad', 'Online payment is not available right now. Please contact the motel.'); go('my-bookings'); }
+        if ($this->paymongo->provider() === 'paymongo') { header('Location: ' . $url, true, 302); exit; }
         render('payment/sandbox', ['b' => $b, 'title' => 'Secure payment']);
-    }
-    private function open_booking(string $ref): array
-    {
-        $b = $this->mine($ref);
-        if ($this->paymongo->provider() !== 'paymongo') abort(404);
-        $this->BookingModel->expire_holds();
-        $b = $this->mine($ref);
-        if ($b['status'] !== 'pending_payment') { flash('bad', 'This booking is no longer open for payment.'); go('booking/' . $ref); }
-        return $b;
-    }
-    private function pay_failed(string $ref): void
-    {
-        if ($this->PaymentModel->error !== '') audit('payment_start_failed', $this->PaymentModel->error);       // the owner can read the reason in the Audit log
-        flash('bad', 'Online payment is not available right now. Please try again in a moment or contact the motel.');
-        go('pay/' . $ref);
-    }
-    public function pay_wallet($ref)            // e-wallet: GCash / Maya / GrabPay / ShopeePay
-    {
-        $b = $this->open_booking($ref);
-        $wallet = post_str('wallet');
-        if (!in_array($wallet, $this->paymongo->wallets(), true)) { flash('bad', 'Please choose an e-wallet.'); go('pay/' . $ref); }
-        $url = $this->PaymentModel->start_wallet($b, $wallet);
-        if (!$url) $this->pay_failed($ref);
-        header('Location: ' . $url, true, 302); exit;
-    }
-    public function pay_link($ref)              // payment link: card, online banking, QR
-    {
-        $b = $this->open_booking($ref);
-        $url = $this->PaymentModel->start_link($b);
-        if (!$url) $this->pay_failed($ref);
-        header('Location: ' . $url, true, 302); exit;
-    }
-    public function pay_status($ref)            // the pay page asks this every few seconds: JSON {state}
-    {
-        $b = $this->mine($ref);
-        if ($this->paymongo->provider() !== 'paymongo') abort(404);
-        $state = $b['status'];
-        if ($state === 'pending_payment') {
-            $s = $this->PaymentModel->settle($b);
-            if ($s['result']) { $this->after_settle($s['result']); $state = $s['result']['booking']['status'] ?? 'confirmed'; }
-        }
-        header('Content-Type: application/json'); header('Cache-Control: no-store');
-        echo json_encode(['state' => $state === 'confirmed' ? 'paid' : $state]); exit;
     }
     public function pay_confirm($ref)           // MOCK gateway only
     {
@@ -137,23 +92,14 @@ class BookingController extends Controller
         if ($this->paymongo->provider() !== 'mock' || !$this->paymongo->mock_allowed()) abort(404);
         $this->finish_payment($this->BookingModel->mark_paid($ref, $b['pay_method'] ?: 'ewallet', 'mock', 'SANDBOX', false));
     }
-    public function pay_return($ref)            // the wallet / payment link sends the guest back here. We ask PayMongo (not the browser!) if it is really paid.
+    public function pay_return($ref)            // PayMongo sends the guest back here. We ask PayMongo (not the browser!) if it is really paid.
     {
         $b = $this->mine($ref);
         if ($this->paymongo->provider() !== 'paymongo') abort(404);
-        $s = $this->PaymentModel->settle($b);
-        if (!$s['result']) {
-            if ($s['state'] === 'failed') { flash('bad', 'The payment was not completed. You can try again while your room is held.'); go('pay/' . $ref); }
-            flash('warn', 'We have not received your payment yet. If you already paid, it appears here in a moment.'); go('pay/' . $ref);
-        }
-        $this->finish_payment($s['result']);
-    }
-    private function after_settle(array $r): void
-    {
-        if (in_array($r['status'], ['confirmed', 'confirmed_late'], true)) {
-            audit('payment_paid', $r['booking']['booking_ref']);
-            $this->NotificationModel->booking_confirmed($r['booking']);
-        }
+        $live = !empty($b['pay_ref']) ? $this->paymongo->session_get($b['pay_ref']) : null;
+        $payId = $live ? $this->paymongo->session_paid($live, $b) : null;
+        if (!$payId) { flash('warn', 'We have not received your payment yet. If you already paid, your booking is confirmed in a moment. Check My bookings.'); go('my-bookings'); }
+        $this->finish_payment($this->BookingModel->mark_paid($ref, $this->paymongo->method_from($live, (string) $b['pay_method']), 'paymongo', $payId, true));
     }
     private function finish_payment(array $r): void
     {

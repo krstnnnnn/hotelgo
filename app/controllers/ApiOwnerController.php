@@ -31,8 +31,7 @@ class ApiOwnerController extends \Hotelgo\Support\ApiBase
     public function notifications()
     {
         $this->need('GET'); $this->who('admin');
-        $this->call->library('messenger');
-        $this->ok(['data' => $this->NotificationModel->recent(200), 'services' => ['sms' => $this->messenger->sms_enabled(), 'email' => $this->messenger->email_enabled()]]);
+        $this->ok(['data' => $this->NotificationModel->recent(200)]);
     }
 
     public function notification_retry($id)
@@ -130,9 +129,7 @@ class ApiOwnerController extends \Hotelgo\Support\ApiBase
         $to = $ok($q['to'] ?? null) ? $q['to'] : date('Y-m-d'); $from = $ok($q['from'] ?? null) ? $q['from'] : date('Y-m-d', strtotime('-6 days'));
         if ($from > $to) [$from, $to] = [$to, $from];
         if (strtotime($to) - strtotime($from) > 366 * 86400) $this->fail('Please choose at most one year.', 422);
-        $days = (int) round((strtotime($to) - strtotime($from)) / 86400) + 1;
-        $prev = $this->PaymentModel->report(date('Y-m-d', strtotime($from . ' -' . $days . ' days')), date('Y-m-d', strtotime($from . ' -1 day')));
-        $this->ok($this->PaymentModel->report($from, $to) + ['prev_total' => $prev['total']]);
+        $this->ok($this->PaymentModel->report($from, $to));
     }
 
     public function audit()

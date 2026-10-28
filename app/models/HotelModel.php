@@ -15,7 +15,7 @@ class HotelModel extends Model
     /* Public list: active hotels with their cheapest 3-hour price and number of room types */
     public function listing(string $area = ''): array
     {
-        $this->db->table('hotels h')->select('h.id, h.name, h.slug, h.area, h.address, h.description, h.lat, h.lng, h.phone, h.email, h.image_id')->where('h.is_active', 1);
+        $this->db->table('hotels h')->select('h.id, h.name, h.slug, h.area, h.address, h.description, h.lat, h.lng, h.phone, h.email')->where('h.is_active', 1);
         if ($area !== '') {
             $this->db->where('h.area', $area);
         }
@@ -27,7 +27,7 @@ class HotelModel extends Model
         foreach ($rows as &$r) {
             $r['types']      = (int) ($stats[(int) $r['id']]['types'] ?? 0);
             $r['from_price'] = isset($stats[(int) $r['id']]) ? (float) $stats[(int) $r['id']]['from_price'] : null;
-            $r['lat'] = (float) $r['lat']; $r['lng'] = (float) $r['lng']; $r['image_id'] = $r['image_id'] ? (int) $r['image_id'] : null;
+            $r['lat'] = (float) $r['lat']; $r['lng'] = (float) $r['lng'];
         }
         return array_values(array_filter($rows, fn($r) => $r['types'] > 0));        // a hotel with nothing to sell is not listed
     }
@@ -41,7 +41,7 @@ class HotelModel extends Model
         $rows = $this->db->order_by('name', 'ASC')->get_all();
         $counts = [];
         foreach ($this->db->table('rooms')->select('hotel_id, COUNT(*) AS n')->group_by('hotel_id')->get_all() as $c) { $counts[(int) $c['hotel_id']] = (int) $c['n']; }
-        foreach ($rows as &$r) { $r['rooms'] = $counts[(int) $r['id']] ?? 0; $r['lat'] = (float) $r['lat']; $r['lng'] = (float) $r['lng']; $r['image_id'] = $r['image_id'] ? (int) $r['image_id'] : null; }
+        foreach ($rows as &$r) { $r['rooms'] = $counts[(int) $r['id']] ?? 0; $r['lat'] = (float) $r['lat']; $r['lng'] = (float) $r['lng']; }
         return $rows;
     }
     public function hotel(int $id): ?array
@@ -106,8 +106,6 @@ class HotelModel extends Model
                 return [false, 'This hotel still has ' . $what . '. Untick "Visible to guests" to hide it instead of deleting it.'];
             }
         }
-        $img = (int) ($this->find($id)['image_id'] ?? 0);
-        if ($img > 0) $this->db->table('images')->where('id', $img)->delete();
         $this->delete($id);
         return [true, 'Hotel deleted.'];
     }

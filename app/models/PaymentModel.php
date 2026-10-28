@@ -7,8 +7,7 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 | Talking to PayMongo is done by the library app/libraries/Paymongo.php (it never touches the database).
 |
 |   payment_provider=mock      -> a "sandbox" payment page (school demo only)
-|   payment_provider=paymongo  -> real PayMongo: e-wallet (payment intent) or payment link. Start with TEST keys (sk_test_...).
-|                                Paid or not is found by asking PayMongo (settle()). There is no webhook.
+|   payment_provider=paymongo  -> real PayMongo Hosted Checkout (GCash / Maya / card). Start with TEST keys (sk_test_...).
 |
 | Payment records are kept for the books: they can be refunded, but never deleted from the website.
 */
@@ -88,7 +87,7 @@ class PaymentModel extends Model
     public function paid_between(string $from, string $to): array
     {
         $this->db->table('payments p')
-            ->select('p.amount, p.paid_at, b.hotel_id, b.stay_type, b.hours, b.start_at, t.name AS type_name, h.name AS hotel_name')
+            ->select('p.amount, p.paid_at, b.stay_type, b.hours, b.start_at, t.name AS type_name, h.name AS hotel_name')
             ->join('bookings b', 'b.id = p.booking_id')
             ->join('room_types t', 't.id = b.room_type_id')
             ->left_join('hotels h', 'h.id = b.hotel_id');
@@ -123,62 +122,52 @@ class PaymentModel extends Model
     }
 
     /* ======================================================= pay ======================================================= */
-    /* Mock (sandbox) only: where must the guest pay? Returns a web address or null. */
+    /* Where must the guest pay? Returns a web address, or null (see $this->error). */
     public function start(array $b): ?string
     {
         $this->error = '';
-        return $this->gateway()->mock_allowed() ? site_url('pay/' . $b['booking_ref']) : null;
+        $gw = $this->gateway();
+        if ($gw->provider() === 'paymongo') {
+            $session = $gw->create_session($b);
+            if (!$session) {
+                $this->error = $gw->error;
+                return null;
+            }
+            [$url, $sessionId] = $session;
+            if (($b['pay_ref'] ?? '') !== $sessionId) {
+                $this->bookings()->set_pay_ref((int) $b['id'], $sessionId);
+            }
+            return $url;
+        }
+        return $gw->mock_allowed() ? site_url('pay/' . $b['booking_ref']) : null;
     }
 
-    /* E-wallet: returns the wallet's redirect address, or null (see $this->error) */
-    public function start_wallet(array $b, string $wallet): ?string
+    /* A paid checkout session arrived (webhook or return page). Returns [result, booking]. */
+    public function handle_paid_session(array $session): array
     {
-        $gw = $this->gateway();
-        $r  = $gw->wallet_start($wallet, $b, abs_url('pay/' . $b['booking_ref'] . '/return'));
-        return $this->remember($b, $r, $gw);
-    }
-    /* Payment link (card / online banking / QR): returns the checkout address, or null */
-    public function start_link(array $b): ?string
-    {
-        $gw = $this->gateway();
-        if (str_starts_with((string) ($b['pay_ref'] ?? ''), 'link_')) {          // the same booking opened again: reuse the link that is still open
-            $open = $gw->link_open($b['pay_ref']);
-            if ($open) {
-                $this->error = '';
-                return $open;
-            }
+        $gw  = $this->gateway();
+        $id  = (string) ($session['id'] ?? '');
+        $ref = (string) ($session['attributes']['reference_number'] ?? '');
+        if (!preg_match('/^cs_[A-Za-z0-9]+$/', $id)) {
+            return ['invalid', null];
         }
-        return $this->remember($b, $gw->link_create($b), $gw);
-    }
-    private function remember(array $b, ?array $r, $gw): ?string
-    {
-        $this->error = $gw->error;
-        if (!$r) {
-            return null;
+        $b = $this->bookings()->by_pay_ref($id) ?: (preg_match('/^HG-[A-Z0-9]{6}$/', $ref) ? $this->bookings()->by_ref($ref) : null);
+        if (!$b) {
+            return ['unknown_booking', null];
         }
-        [$url, $id] = $r;
-        if (($b['pay_ref'] ?? '') !== $id) {
-            if (!empty($b['pay_ref'])) {
-                $gw->stop($b['pay_ref']);                                        // an older unpaid link is closed so only one attempt can be paid
-            }
-            $this->bookings()->set_pay_ref((int) $b['id'], $id);
+        $live = $gw->session_get($id);                       // do not trust the webhook text alone: ask PayMongo
+        if ($live === null) {
+            return ['retry', $b];                            // could not reach PayMongo: answer with an error so it tries again later
         }
-        return $url;
-    }
-
-    /* Ask PayMongo whether this booking was paid; if yes confirm it.
-       Returns ['state' => paid|pending|failed|unreachable|none, 'result' => mark_paid result or null] */
-    public function settle(array $b): array
-    {
-        if (empty($b['pay_ref']) || $this->gateway()->provider() !== 'paymongo') {
-            return ['state' => 'none', 'result' => null];
+        $payId = $gw->session_paid($live, $b);
+        if (!$payId) {
+            return ['not_paid', $b];
         }
-        $st = $this->gateway()->state($b['pay_ref'], $b);
-        if ($st['state'] !== 'paid') {
-            return ['state' => $st['state'], 'result' => null];
+        if ($this->provider_ref_exists('paymongo', $payId)) {
+            return ['already', $b];
         }
-        $r = $this->bookings()->mark_paid($b['booking_ref'], $st['method'] ?: (string) $b['pay_method'] ?: 'ewallet', 'paymongo', $st['payment_id'], true);
-        return ['state' => 'paid', 'result' => $r];
+        $r = $this->bookings()->mark_paid($b['booking_ref'], $gw->method_from($live, (string) $b['pay_method']), 'paymongo', $payId, true);
+        return [$r['status'], $r['booking']];
     }
 
     /* ======================================================= refund ======================================================= */
@@ -215,7 +204,7 @@ class PaymentModel extends Model
             $all = $all && $ok;
         }
         if (!empty($b['pay_ref']) && $b['status'] === 'pending_payment') {
-            $this->gateway()->stop($b['pay_ref']);
+            $this->gateway()->session_expire($b['pay_ref']);
         }
         return $all;
     }
