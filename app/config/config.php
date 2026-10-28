@@ -64,8 +64,7 @@ $config['version']                 = '4.7.0';
 | -------------------------------------------------------------------
 | Values: development and production
 */
-$config['environment'] = getenv('APP_ENV') ?: 'development';
-
+$config['environment'] = getenv('APP_ENV') ?: 'production';
 /*
 |--------------------------------------------------------------------------
 | Default Timezone
@@ -262,7 +261,7 @@ $config['session_hmac_secret']     = getenv('APP_KEY') ?: '';
 $config['cookie_prefix']           = '';
 $config['cookie_domain']           = '';
 $config['cookie_path']             = '/';
-$config['cookie_secure']           = (getenv('APP_ENV') === 'production');
+$config['cookie_secure'] = ($config['environment'] === 'production');
 $config['cookie_expiration']       = 86400;
 $config['cookie_httponly']         = TRUE;
 $config['cookie_samesite']         = 'Lax';
