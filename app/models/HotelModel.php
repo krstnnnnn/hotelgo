@@ -9,7 +9,7 @@ class HotelModel extends Model
 {
     protected $table = 'hotels';
 
-    const COLUMNS = ['name', 'slug', 'area', 'address', 'description', 'lat', 'lng', 'phone', 'email', 'is_active'];
+    const COLUMNS = ['name', 'slug', 'area', 'address', 'description', 'lat', 'lng', 'phone', 'email', 'is_active', 'calendar_id'];
 
     /* ---------------- read ---------------- */
     /* Public list: active hotels with their cheapest 3-hour price and number of room types */
@@ -73,11 +73,14 @@ class HotelModel extends Model
         $slug = self::slugify((string) ($in['slug'] ?? '') ?: $name);
         $base = $slug; $n = 2;
         while ($this->slug_taken($slug, $exceptId)) { $slug = $base . '-' . $n++; }
+        $cal = trim((string) ($in['calendar_id'] ?? ''));
+        if ($cal !== '' && !preg_match('/^[A-Za-z0-9._@%+-]{3,190}$/', $cal)) return [null, 'The Google Calendar ID is not valid. Copy it from Google Calendar > Settings > Integrate calendar.'];
         return [[
             'name' => $name, 'slug' => $slug, 'area' => mb_substr(trim((string) ($in['area'] ?? '')), 0, 80),
             'address' => mb_substr(trim((string) ($in['address'] ?? '')), 0, 255), 'description' => mb_substr(trim((string) ($in['description'] ?? '')), 0, 500),
             'lat' => $lat, 'lng' => $lng, 'phone' => mb_substr(trim((string) ($in['phone'] ?? '')), 0, 30), 'email' => $email,
             'is_active' => in_array($in['is_active'] ?? 1, [1, '1', true, 'on'], true) ? 1 : 0,
+            'calendar_id' => $cal !== '' ? $cal : null,
         ], ''];
     }
     private function slug_taken(string $slug, int $exceptId): bool

@@ -14,13 +14,19 @@ class BookingModel extends Model
     const COLUMNS = 'b.id, b.booking_ref, b.user_id, b.room_type_id, b.room_id, b.stay_type, b.hours, b.start_at, b.end_at, b.guests, '
         . 'b.guest_name, b.guest_mobile, b.guest_email, b.id_type, b.id_last4, b.room_rate, b.booking_fee, b.total, b.status, '
         . 'b.pay_method, b.pay_ref, b.source, b.hold_expires_at, b.created_at, b.cancelled_at, b.checked_in_at, b.checked_out_at, '
-        . 'b.hotel_id, t.name AS type_name, r.room_no, h.name AS hotel_name, h.address AS hotel_address, h.lat AS hotel_lat, h.lng AS hotel_lng, h.phone AS hotel_phone';
+        . 'b.hotel_id, b.gcal_event_id, t.name AS type_name, r.room_no, h.name AS hotel_name, h.address AS hotel_address, h.lat AS hotel_lat, h.lng AS hotel_lng, h.phone AS hotel_phone';
 
     const STATUSES = ['pending_payment', 'confirmed', 'checked_in', 'checked_out', 'cancelled', 'expired'];
 
     private function models(string $name)
     {
         return $this->call->model($name);
+    }
+
+    /* Keep the hotel's Google Calendar right after a booking changed (does nothing when Google Calendar is not connected; never stops the booking) */
+    private function calendar(int $id): void
+    {
+        $this->models('CalendarModel')->sync($id);
     }
 
     /* The base query: a booking with its room type and room number. Add ->where(...) and ->get() / ->get_all(). */
@@ -175,6 +181,7 @@ class BookingModel extends Model
         $this->db->table($this->table)->where('id', $res['id'])->update(['hold_expires_at' => null]);
         $b = $this->by_ref($res['ref']);
         $this->models('PaymentModel')->add_cash($b);
+        $this->calendar((int) $res['id']);
         return $res + ['booking' => $b];
     }
 
@@ -268,6 +275,7 @@ class BookingModel extends Model
         $row = array_intersect_key($data, array_flip(['guest_name', 'guest_mobile', 'guest_email', 'guests']));
         if ($row) {
             $this->update($id, $row);
+            $this->calendar($id);
         }
     }
     public function set_pay_ref(int $id, string $payRef): void
@@ -313,6 +321,7 @@ class BookingModel extends Model
             $pay->add_paid($b, $method, $provider, $providerRef);
             $this->db->table($this->table)->where('id', $b['id'])->update(['status' => 'confirmed', 'hold_expires_at' => null, 'pay_method' => $method]);
             $this->db->commit();
+            $this->calendar((int) $b['id']);
             return ['status' => 'confirmed', 'booking' => $this->by_ref($ref)];
         }
         if (!$allowLate) { $this->db->roll_back(); return ['status' => 'failed', 'booking' => $this->by_ref($ref)]; }
@@ -326,6 +335,7 @@ class BookingModel extends Model
                 $pay->add_paid($b, $method, $provider, $providerRef);
                 $this->db->table($this->table)->where('id', $b['id'])->update(['status' => 'confirmed', 'room_id' => $room, 'hold_expires_at' => null, 'pay_method' => $method]);
                 $this->db->commit();
+                $this->calendar((int) $b['id']);
                 return ['status' => 'confirmed_late', 'booking' => $this->by_ref($ref)];
             }
         }
@@ -349,6 +359,7 @@ class BookingModel extends Model
         $this->db->transaction();
         $this->db->table($this->table)->where('id', $b['id'])->update(['status' => 'cancelled', 'cancelled_at' => now_str()]);
         $this->db->commit();          // the money side is handled by PaymentModel::refund_booking()
+        $this->calendar((int) $b['id']);
     }
 
     /* The guest changes the date / time (same room type, same length, so the price stays the same) */
@@ -362,6 +373,7 @@ class BookingModel extends Model
         foreach ($free as $r) if ((int) $r['id'] === (int) $b['room_id']) $room = (int) $r['id'];   // keep the same room if it is free
         $this->db->table($this->table)->where('id', $b['id'])->update(['start_at' => $w['start'], 'end_at' => $w['end'], 'room_id' => $room]);
         $this->db->commit();
+        $this->calendar((int) $b['id']);
         return ['ok' => true];
     }
 
@@ -398,11 +410,15 @@ class BookingModel extends Model
 
     public function check_in(int $id): bool
     {
-        return $this->db->table($this->table)->where('id', $id)->where('status', 'confirmed')->update(['status' => 'checked_in', 'checked_in_at' => now_str()]) > 0;
+        $ok = $this->db->table($this->table)->where('id', $id)->where('status', 'confirmed')->update(['status' => 'checked_in', 'checked_in_at' => now_str()]) > 0;
+        if ($ok) $this->calendar($id);
+        return $ok;
     }
     public function check_out(int $id): bool
     {
-        return $this->db->table($this->table)->where('id', $id)->where('status', 'checked_in')->update(['status' => 'checked_out', 'checked_out_at' => now_str()]) > 0;
+        $ok = $this->db->table($this->table)->where('id', $id)->where('status', 'checked_in')->update(['status' => 'checked_out', 'checked_out_at' => now_str()]) > 0;
+        if ($ok) $this->calendar($id);
+        return $ok;
     }
     public function reassign(array $b, int $roomId): bool
     {
@@ -419,6 +435,7 @@ class BookingModel extends Model
             }
         }
         $ok ? $this->db->commit() : $this->db->roll_back();
+        if ($ok) $this->calendar((int) $b['id']);
         return $ok;
     }
 }

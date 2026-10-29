@@ -203,6 +203,7 @@ class PaymentModel extends Model
         }
         $this->update($paymentId, ['status' => 'refunded', 'refunded_at' => now_str()]);
         $this->db->table('bookings')->where('id', $p['booking_id'])->in('status', ['confirmed', 'pending_payment'])->update(['status' => 'cancelled', 'cancelled_at' => now_str()]);
+        $this->call->model('CalendarModel')->sync((int) $p['booking_id']);             // a refunded booking leaves the hotel's calendar
         return [true, 'Refunded.'];
     }
 

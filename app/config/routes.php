@@ -174,6 +174,10 @@ $router->group(['prefix' => '/api'], function ($router) {
     $router->put('/staff/{id}', 'ApiOwnerController::staff_update');
     $router->delete('/staff/{id}', 'ApiOwnerController::staff_delete');
 
+    $router->get('/calendar', 'ApiCalendarController::status');
+    $router->post('/calendar/test', 'ApiCalendarController::test');
+    $router->post('/calendar/sync', 'ApiCalendarController::sync');
+
     $router->get('/settings', 'ApiOwnerController::settings');
     $router->put('/settings', 'ApiOwnerController::settings_save');
     $router->get('/reports', 'ApiOwnerController::reports');

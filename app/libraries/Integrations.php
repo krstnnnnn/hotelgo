@@ -15,6 +15,7 @@ class Integrations
         $this->_lava = lava_instance();
         $this->_lava->call->library('paymongo');
         $this->_lava->call->library('messenger');
+        $this->_lava->call->library('google_calendar');
     }
 
     /* Returns a list of [name, connected (true/false), note] */
@@ -39,7 +40,11 @@ class Integrations
                 $mail->email_enabled(),
                 $emailProvider === 'appsscript' ? 'Free Gmail relay (Google Apps Script) · sign-up codes are emailed'
                     : ($emailProvider === 'resend' ? 'Resend · from: ' . (config_item('mail_from') ?: 'MAIL_FROM is missing') : 'Demo only: emails are saved in Notifications, not sent')],
-            ['Calendar (.ics file)', true, 'Built in – guests download a calendar file'],
+            ['Google Calendar',
+                $this->_lava->google_calendar->configured(),
+                $this->_lava->google_calendar->configured()
+                    ? 'Google Calendar API · service account ' . $this->_lava->google_calendar->email() . ' · every paid booking is added to the hotel calendar · guests also get the built-in .ics file'
+                    : 'Not connected: set GOOGLE_SERVICE_ACCOUNT_JSON. Guests still get the built-in .ics calendar file.'],
         ];
     }
 }

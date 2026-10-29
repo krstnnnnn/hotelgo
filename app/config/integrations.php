@@ -34,7 +34,11 @@ $config['resend_api_key']          = (string) getenv('RESEND_API_KEY');
 $config['mail_from']               = (string) getenv('MAIL_FROM');
 $config['mail_from_name']          = getenv('MAIL_FROM_NAME') ?: 'HOTELGO';
 
-/* 5. Calendar: built in (.ics file), nothing to configure */
+/* 5. Calendar: guests always get the built-in .ics file. Google Calendar sync is real (Calendar API v3, service account) and optional. */
+$config['google_calendar_json']    = (string) getenv('GOOGLE_SERVICE_ACCOUNT_JSON');            /* the whole key file of the service account (raw JSON or base64) */
+$config['google_calendar_id']      = (string) getenv('GOOGLE_CALENDAR_ID');                      /* calendar used by a hotel that has no calendar of its own */
+$config['google_calendar_api']     = 'https://www.googleapis.com/calendar/v3';
+$config['google_token_url']        = 'https://oauth2.googleapis.com/token';
 
 /* Only needed on some Windows computers: path to cacert.pem */
 $config['curl_ca_bundle']          = (string) getenv('CURL_CA_BUNDLE');

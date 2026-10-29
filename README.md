@@ -121,6 +121,24 @@ Set `PAYMENT_PROVIDER=paymongo`, `PAYMONGO_PUBLIC_KEY` and `PAYMONGO_SECRET_KEY`
 Guests pay with an e-wallet (GCash, Maya, GrabPay, ShopeePay: a PayMongo *Payment Intent*) or with a *payment link* (card, online banking, QR).
 Paid or not is never taken from the browser: the system asks PayMongo (`PaymentModel::settle()`) when the guest returns, while the pay page polls `/pay/{ref}/status`, when a room hold ends, and when staff press "Check payment".
 
+## Google Calendar sync (real, optional)
+
+Every **paid** booking is added to the hotel's Google Calendar by itself, moved when the time or room changes, coloured green at check-in and grey at check-out, and **removed when it is cancelled or refunded**. Guests still get the built-in `.ics` file.
+
+How it works: `app/libraries/Google_calendar.php` talks to the Google Calendar API v3 with a **service account** (a robot account, nobody has to sign in with Google). `app/models/CalendarModel.php` decides what must be in the calendar (paid = yes, everything else = no) and `BookingModel` calls it after every change. A Google problem never stops a booking.
+
+Set it up once:
+
+1. Google Cloud Console > create a project > **APIs & Services > Library > Google Calendar API > Enable**.
+2. **IAM & Admin > Service Accounts > Create**, then open it > **Keys > Add key > Create new key > JSON**. A file is downloaded.
+3. Put the **whole JSON** on one line in `GOOGLE_SERVICE_ACCOUNT_JSON` (`.env` locally, Render > Environment online). Never commit the file.
+4. In Google Calendar open the hotel's calendar > **Settings and sharing > Share with specific people** > add the service account's email (`...@...iam.gserviceaccount.com`) with the permission **Make changes to events**.
+5. In the same settings copy the **Calendar ID** (Integrate calendar). In the console open **Hotels > Edit** and paste it, press **Test connection**, then **Save** and **Send upcoming bookings**.
+6. Optional: `GOOGLE_CALENDAR_ID` is the calendar used by a hotel that has no calendar of its own.
+7. Run `php lava migration run` once (adds `hotels.calendar_id`, `bookings.gcal_event_id`, `bookings.gcal_synced_at`).
+
+Console: **Settings > Integrations** shows whether it is connected, and **Hotels > Edit > Google Calendar** has the Test and Send buttons (API: `GET /api/calendar`, `POST /api/calendar/test`, `POST /api/calendar/sync`; hotel owner or platform admin only).
+
 ## Where the staff console is
 
 The staff and admin interface is the React app (`hotelgo-web`). When `FRONTEND_URL` is set, every `/admin...` page and the staff sign-in of this PHP site send staff to the console (`FRONTEND_URL/#/<STAFF_LOGIN_PATH>`). If `FRONTEND_URL` is empty, the older server-rendered `/admin` pages are shown instead.

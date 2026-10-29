@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS hotels (
   email VARCHAR(150) NULL,
   is_active TINYINT NOT NULL DEFAULT 1,
   created_at DATETIME NOT NULL,
-  image_id INT NULL
+  image_id INT NULL,
+  calendar_id VARCHAR(190) NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS images (
@@ -97,6 +98,8 @@ CREATE TABLE IF NOT EXISTS bookings (
   checked_in_at DATETIME NULL,
   checked_out_at DATETIME NULL,
   hotel_id INT NULL,
+  gcal_event_id VARCHAR(64) NULL,
+  gcal_synced_at DATETIME NULL,
   FOREIGN KEY (user_id) REFERENCES users(id),
   FOREIGN KEY (room_type_id) REFERENCES room_types(id),
   FOREIGN KEY (room_id) REFERENCES rooms(id)
