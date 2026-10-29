@@ -83,8 +83,18 @@ The `Dockerfile` installs PHP 8 + Apache and runs `composer install`. Add these 
 
 ## Security notes
 
-Sessions use strict, HTTP-only cookies. All forms carry a CSRF token (the API uses bearer tokens instead). Passwords are hashed. Sign-in and one-time codes are rate limited. Only the last 4 characters of an ID number are stored. Guest records are audited on every view. Card and e-wallet details never touch this server (PayMongo hosted checkout).
+Sessions use strict, HTTP-only cookies. All forms carry a CSRF token (the API uses bearer tokens instead). Passwords are hashed. Sign-in and one-time codes are rate limited. Only the last 4 characters of an ID number are stored. Guest records are audited on every view. Card and e-wallet details never touch this server (they are handled on PayMongo's own pages).
 
+
+## Real photos
+
+Hotels, room types and the home page use **real photos** that are uploaded in the React console (no extra service, no files on the server).
+
+- **Hotels / Room types:** open Edit, then *Upload photo*. A hotel owner can do this for their own hotel; the platform admin for any.
+- **Home page:** platform admin, menu *Home photos* (top picture, banners, six gallery pictures).
+- Where there is no photo the drawn picture is shown. A room type without its own photo shows its hotel's photo.
+- Photos are shrunk in the browser (at most 1600 px, JPEG) and stored in the database table `images` (migration `016`). The public address is `GET /photo/{id}`; the API has `GET /api/photos` and `POST /api/manage/photos`.
+- Each picture is checked on the server: real JPG / PNG / WebP, between 200 and 6000 pixels, at most about 700 KB.
 
 ## Many hotels on one platform
 
@@ -104,3 +114,13 @@ HOTELGO is a central booking platform: **many hotels in different parts of Puert
 * Staff API: `GET/POST /api/manage/hotels`, `PUT/DELETE /api/manage/hotels/{id}`.
 * `php lava migration run` on an existing database keeps all data: the old motel becomes hotel 1 and three sample hotels are added (edit or hide them on the Hotels page).
 * Sample accounts (temporary password `ChangeMe!2026`, changed at first sign-in): `admin@hotelgo.ph` (platform admin), `rico@hotelgo.ph` (Coral Nest Motel), `staff.sabang@hotelgo.ph`, `staff.talipanan@hotelgo.ph`, `staff.laguna@hotelgo.ph`.
+
+## Online payment (PayMongo)
+
+Set `PAYMENT_PROVIDER=paymongo`, `PAYMONGO_PUBLIC_KEY` and `PAYMONGO_SECRET_KEY` (test keys first). There is **no webhook secret**.
+Guests pay with an e-wallet (GCash, Maya, GrabPay, ShopeePay: a PayMongo *Payment Intent*) or with a *payment link* (card, online banking, QR).
+Paid or not is never taken from the browser: the system asks PayMongo (`PaymentModel::settle()`) when the guest returns, while the pay page polls `/pay/{ref}/status`, when a room hold ends, and when staff press "Check payment".
+
+## Where the staff console is
+
+The staff and admin interface is the React app (`hotelgo-web`). When `FRONTEND_URL` is set, every `/admin...` page and the staff sign-in of this PHP site send staff to the console (`FRONTEND_URL/#/<STAFF_LOGIN_PATH>`). If `FRONTEND_URL` is empty, the older server-rendered `/admin` pages are shown instead.

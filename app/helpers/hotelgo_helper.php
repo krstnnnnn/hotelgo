@@ -20,7 +20,17 @@ use Hotelgo\Support\Phone;
 /* ---------- small basics ---------- */
 function e($value): string { return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
 function staff_login_path(): string { return (string) config_item('hotelgo_staff_path'); }
+/* The staff console is the React app (hotelgo-web). When FRONTEND_URL is set, every staff page and the staff sign-in of this PHP site send people there. */
+function console_door(): string
+{
+    $url = rtrim((string) config_item('hotelgo_frontend_url'), '/');
+    if ($url === '') return '';
+    return $url . '/#/' . (staff_login_path() !== '' ? staff_login_path() : 'dashboard');
+}
 function is_production(): bool { return config_item('environment') === 'production'; }
+/* Address of an uploaded picture (table images), or '' when there is none */
+function photo_url($id): string { return (int) $id > 0 ? site_url('photo/' . (int) $id) : ''; }
+
 function money($n): string { return Money::format($n); }
 function now_str(): string { return date('Y-m-d H:i:s'); }
 function fmt_dt($s, string $f = 'D, j M Y · g:i A'): string { $t = strtotime((string) $s); return $t ? date($f, $t) : ''; }

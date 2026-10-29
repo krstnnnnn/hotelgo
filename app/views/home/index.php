@@ -1,7 +1,9 @@
 <?php defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 $img = fn(string $n) => base_url('assets/img/' . $n);
-/* Real photo slot: put photos/<slot>.jpg (or .jpeg .webp .png) in public/assets/img/photos and it replaces the drawn scene automatically. */
+/* Real photo slot: a picture uploaded in the admin (Photos page) wins; else a file photos/<slot>.jpg in public/assets/img/photos; else the drawn scene. */
 $photo = function (string $slot, string $fallback) use ($img): string {
+    $up = photo_url((int) setting('photo_' . $slot, '0'));
+    if ($up !== '') return $up;
     foreach (['jpg', 'jpeg', 'webp', 'png'] as $x) { if (is_file(ROOT_DIR . 'public/assets/img/photos/' . $slot . '.' . $x)) return base_url('assets/img/photos/' . $slot . '.' . $x); }
     return $img($fallback);
 };
@@ -63,14 +65,14 @@ $voices = [
 <section class="section" id="hotels"><div class="container"><div class="center"><div class="eyebrow reveal">One platform, many hotels</div><h2 class="reveal">Hotels across <em>Puerto Galera</em></h2>
   <p class="mute reveal" style="max-width:640px;margin:0 auto">Compare hotels in Sabang, White Beach, Talipanan and more. Pick the area you like, then book a room in one place.</p></div>
   <div class="grid g3 lp-rooms"><?php foreach ($hotels as $i => $hh): ?>
-    <article class="card flat lp-room reveal d<?= $i % 3 ?>"><div class="lp-room-body"><div class="small mute" style="font-weight:700;letter-spacing:.06em;text-transform:uppercase"><?= e($hh['area'] ?? '') ?></div><h3><?= e($hh['name']) ?></h3><p class="mute small"><?= e($hh['description'] ?? '') ?></p>
+    <article class="card flat lp-room reveal d<?= $i % 3 ?>"><div class="lp-room-img"><img src="<?= e(photo_url($hh['image_id'] ?? 0) ?: $img(['g5.svg', 'g1.svg', 'g4.svg', 'g2.svg'][$i % 4])) ?>" alt="<?= e($hh['name']) ?>" loading="lazy"><span class="lp-tag"><?= e($hh['area'] ?? '') ?></span></div><div class="lp-room-body"><h3><?= e($hh['name']) ?></h3><p class="mute small"><?= e($hh['description'] ?? '') ?></p>
       <div class="lp-prices"><div><span class="small mute">From</span><b><?= e(money($hh['from_price'])) ?> / 3 hrs</b></div><a class="btn btn-sm" href="<?= e(site_url('rooms')) ?>?stay=hourly&amp;date=<?= e(date('Y-m-d')) ?>&amp;time=19:00&amp;hours=3&amp;guests=2&amp;hotel=<?= (int) $hh['id'] ?>">View rooms</a></div></div></article>
   <?php endforeach; ?></div></div></section>
 
 <section class="section" id="rooms"><div class="container"><div class="center"><div class="eyebrow reveal">Accommodations</div><h2 class="reveal">Our <em>Rooms &amp; Suites</em></h2>
   <p class="mute reveal" style="max-width:620px;margin:0 auto">Each room is a quiet place to rest. Prices are the room rate set by each hotel; a small online booking fee applies at checkout.</p></div>
   <div class="grid g3 lp-rooms"><?php foreach ($types as $i => $t): $fb = ['g3.svg', 'g1.svg', 'g5.svg', 'g4.svg'][$i % 4]; ?>
-    <article class="card flat lp-room reveal d<?= $i % 3 ?>"><div class="lp-room-img"><img src="<?= e($photo('room' . ($i % 4 + 1), $fb)) ?>" alt="<?= e($t['name']) ?>" loading="lazy"><span class="lp-tag">From <?= e(money($t['price_3h'])) ?> / 3 hrs</span></div>
+    <article class="card flat lp-room reveal d<?= $i % 3 ?>"><div class="lp-room-img"><img src="<?= e(photo_url($t['image_id'] ?? 0) ?: photo_url($t['hotel_image_id'] ?? 0) ?: $photo('room' . ($i % 4 + 1), $fb)) ?>" alt="<?= e($t['name']) ?>" loading="lazy"><span class="lp-tag">From <?= e(money($t['price_3h'])) ?> / 3 hrs</span></div>
       <div class="lp-room-body"><div class="small mute" style="font-weight:700;letter-spacing:.06em;text-transform:uppercase"><?= e($t['hotel_name'] ?? '') ?> · <?= e($t['hotel_area'] ?? '') ?></div><h3><?= e($t['name']) ?></h3><p class="mute small"><?= e($t['description']) ?></p>
         <ul class="lp-amen"><?php foreach (array_slice(explode(',', (string) $t['amenities']), 0, 4) as $a): ?><li><?= e(trim($a)) ?></li><?php endforeach; ?><li>Up to <?= (int) $t['max_guests'] ?> guests</li></ul>
         <div class="lp-prices"><div><span class="small mute">Overnight</span><b><?= e(money($t['price_overnight'])) ?></b></div><a class="btn btn-sm" href="<?= e(site_url('rooms')) ?>?stay=hourly&amp;date=<?= e(date('Y-m-d')) ?>&amp;time=19:00&amp;hours=3&amp;guests=2&amp;hotel=<?= (int) $t['hotel_id'] ?>">Book now</a></div></div></article>

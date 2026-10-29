@@ -11,7 +11,7 @@ class AuthController extends Controller
 
     /* ---------------- login ---------------- */
     public function login_form() { render('auth/login', ['staff' => false, 'title' => 'Sign in']); }
-    public function staff_login_form() { render('auth/login', ['staff' => true, 'title' => 'Staff sign in', 'noindex' => true]); }
+    public function staff_login_form() { if (console_door() !== '') { header('Location: ' . console_door(), true, 302); exit; } render('auth/login', ['staff' => true, 'title' => 'Staff sign in', 'noindex' => true]); }
     public function login() { $this->do_login(false); }
     public function staff_login() { $this->do_login(true); }
 
