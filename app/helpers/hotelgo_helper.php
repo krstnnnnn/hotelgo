@@ -175,6 +175,17 @@ function abs_url(string $path = ''): string {
 /* ---------- QR code as an inline SVG picture (library app/libraries/Qr.php) ---------- */
 function qr_svg(string $text): string { return lava_instance()->call->library('qr')->svg($text); }
 
+/* ---------- VIP rooms: the services a room type includes, as [title, details] pairs ("Title: details" per line) ---------- */
+function included_list(array $t): array {
+    $out = [];
+    foreach (preg_split('/\R/', (string) ($t['included_services'] ?? '')) as $l) {
+        $l = trim($l);
+        if ($l === '') continue;
+        $out[] = str_contains($l, ':') ? array_map('trim', explode(':', $l, 2)) : [$l, ''];
+    }
+    return $out;
+}
+
 /* ---------- small icon set (inline SVG) ---------- */
 function icon(string $name, string $color = 'currentColor', int $size = 20): string {
     $p = [
@@ -189,6 +200,7 @@ function icon(string $name, string $color = 'currentColor', int $size = 20): str
         'message' => '<path d="M4 5h16v11H9l-5 4z"/>',
         'mail' => '<rect x="3" y="5" width="18" height="14" rx="3"/><path d="m3 7 9 6 9-6"/>',
         'check' => '<path d="m5 12 5 5 9-10"/>',
+        'star' => '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
     ][$name] ?? '';
     return '<svg width="' . $size . '" height="' . $size . '" viewBox="0 0 24 24" fill="none" stroke="' . e($color) . '" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' . $p . '</svg>';
 }

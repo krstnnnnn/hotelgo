@@ -236,3 +236,5 @@ footer{border-top:3px solid var(--teal)}
 footer h4{font-family:Sora,'DM Sans',sans-serif;letter-spacing:.02em}
 
 .scene.photo:before,.scene.photo:after{display:none}.scene.photo img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+
+.pill.vip{background:#FFF1D6;color:#7A4B00;border:1px solid #E8C26A}.vipbox{border:1px solid #E8C26A;background:linear-gradient(#FFFBF0,#fff)}.vipinc{margin:8px 0 0;padding:0;list-style:none;font-size:.85rem}.vipinc li{margin:2px 0}.vipinc li:before{content:'✓ ';color:var(--teal)}

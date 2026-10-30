@@ -39,6 +39,7 @@ Base path `/api`. Send `Authorization: Bearer <access token>` and JSON bodies.
 | Public | `GET /room-types`, `GET /availability?stay=&date=&time=&hours=&guests=` | anyone |
 | Dashboard | `GET /dashboard` | staff |
 | Bookings | `GET /bookings`, `GET /bookings/{ref}`, `POST /bookings` (walk-in), `PUT /bookings/{ref}`, `POST /bookings/{ref}/action` (`checkin`, `checkout`, `cancel`, `resend`, `reassign`), `DELETE /bookings/{ref}` | staff (delete: owner) |
+| Requests | `GET /requests?status=open`, `POST /bookings/{ref}/requests`, `PUT /requests/{id}` (`accept`, `decline`, `done`, `price`), `POST /requests/{id}/pay` (`cash`, `link`, `check`) | staff |
 | Guests | `GET /guests`, `GET /guests/{id}`, `PUT /guests/{id}`, `DELETE /guests/{id}` | staff (delete: owner) |
 | Room types | `GET /types` (staff); `POST`, `PUT /types/{id}`, `DELETE /types/{id}` | owner |
 | Rooms | `GET /rooms` (staff); `POST`, `PUT /rooms/{id}`, `DELETE /rooms/{id}` | owner |
@@ -138,6 +139,19 @@ Set it up once:
 7. Run `php lava migration run` once (adds `hotels.calendar_id`, `bookings.gcal_event_id`, `bookings.gcal_synced_at`).
 
 Console: **Settings > Integrations** shows whether it is connected, and **Hotels > Edit > Google Calendar** has the Test and Send buttons (API: `GET /api/calendar`, `POST /api/calendar/test`, `POST /api/calendar/sync`; hotel owner or platform admin only).
+
+## VIP rooms and service requests
+
+A **VIP room** looks like a normal room on the website, but it has a fixed higher price and a **package of services already included** (welcome drinks, breakfast in bed, private dining ...). The owner ticks *VIP / luxury room* in **Room types** and writes the package, one line each, as `Title: details`. The guest sees the package on the room card and on the booking page. Booking and room assignment stay automatic, exactly like a normal room.
+
+A VIP guest can also **ask for something extra** (balcony set-up, karaoke, a chef menu ...). The request does not need the booking to be redone:
+
+1. The guest sends it from the booking page (`/booking/{ref}`), choosing from the list in `app/config/hotelgo.php` (`hotelgo_request_services`).
+2. The staff gets a **bell notification** and a badge on **Requests** in the console. They **Accept** it (and may set a **price**), **Decline** it, then **Mark done**.
+3. If there is a price, it is paid **in cash** at the desk or by a **PayMongo payment link** (the guest has a *Pay online* button). The money is saved as one more payment of the booking, so receipts and reports include it. Nothing is charged before the staff has confirmed the price.
+4. The front desk can also add a request or an extra charge to any booking (Reservations > booking > Requests & extras).
+
+Tables and code: `service_requests` (migration `018`), `ServiceRequestModel`, `ApiRequestController`, `BookingController::request_service`, React `pages/Requests.jsx`. Run `php lava migration run` once. The migration adds one example "VIP Luxury Suite" (rooms VIP1 and VIP2) to the first hotel; edit or delete it in **Room types**.
 
 ## Where the staff console is
 

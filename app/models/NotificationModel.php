@@ -112,6 +112,28 @@ class NotificationModel extends Model
         $this->send((int) $b['id'], $this->uid($b), 'sms', $b['guest_mobile'], '', 'HOTELGO: Booking ' . $b['booking_ref'] . ' moved to ' . fmt_dt($b['start_at'], 'D j M g:i A') . ' - ' . fmt_dt($b['end_at'], 'g:i A') . ', Room ' . $b['room_no'] . '.');
         if ($b['guest_email'] !== '') $this->send((int) $b['id'], $this->uid($b), 'email', $b['guest_email'], 'Your HOTELGO booking was changed', "Hi " . $b['guest_name'] . ",\n\nBooking " . $b['booking_ref'] . " is now:\nRoom " . $b['room_no'] . "\nCheck-in: " . fmt_dt($b['start_at']) . "\nCheck-out: " . fmt_dt($b['end_at']) . "\n");
     }
+    /* A guest asked for an extra service: the motel is told by email (and sees it in the console: Requests, bell, badge) */
+    public function request_received(array $b, array $r): void
+    {
+        $hotel = $this->db->table('hotels')->select('email, name')->where('id', (int) ($b['hotel_id'] ?? 0))->get();
+        $to = trim((string) ($hotel['email'] ?? ''));
+        if ($to === '') return;
+        $this->send((int) $b['id'], null, 'email', $to, 'New service request: ' . $r['service'] . ' (Room ' . ($b['room_no'] ?? '?') . ')',
+            "A guest asked for a service.\n\nService: " . $r['service'] . "\nNote: " . ($r['note'] ?: '-') . "\nGuest: " . $b['guest_name'] . ' · ' . $b['guest_mobile'] . "\nRoom: " . ($b['room_no'] ?? '?') . ' (' . $b['type_name'] . ")\nBooking: " . $b['booking_ref']
+            . "\n\nOpen the staff console > Requests to accept, set a price or decline it.\n");
+    }
+    /* The motel answered a request: the guest is told */
+    public function request_update(array $r, string $reply = ''): void
+    {
+        $b = $this->db->table('bookings')->select('id, user_id, guest_name, guest_mobile, guest_email, booking_ref')->where('id', (int) $r['booking_id'])->get();
+        if (!$b) return;
+        $what = ['accepted' => 'was accepted', 'done' => 'is done', 'declined' => 'could not be accepted'][$r['status']] ?? null;
+        if ($what === null) return;
+        $price = (float) ($r['price'] ?? 0) > 0 && $r['status'] === 'accepted' ? ' Extra charge: ' . money($r['price']) . '. You can pay it at the desk or online on your booking page.' : '';
+        $text = 'HOTELGO: Your request "' . $r['service'] . '" for booking ' . $b['booking_ref'] . ' ' . $what . '.' . $price . ($reply !== '' ? ' Note: ' . $reply : '');
+        $this->send((int) $b['id'], $this->uid($b), 'sms', $b['guest_mobile'], '', $text);
+        if ($b['guest_email'] !== '') $this->send((int) $b['id'], $this->uid($b), 'email', $b['guest_email'], 'Your HOTELGO request ' . $what, "Hi " . $b['guest_name'] . ",\n\n" . substr($text, 9) . "\n\nYour booking page: " . abs_url('booking/' . $b['booking_ref']) . "\n");
+    }
     /* sign-up and password-reset codes go to the guest's EMAIL (free). No SMS needed. */
     public function code(int $userId, string $email, string $purpose, string $code): void
     {

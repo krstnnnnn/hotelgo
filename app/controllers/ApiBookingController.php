@@ -10,7 +10,7 @@ class ApiBookingController extends \Hotelgo\Support\ApiBase
     public function __construct()
     {
         parent::__construct();
-        $this->call->model(['RoomTypeModel', 'RoomModel', 'BookingModel', 'PaymentModel', 'NotificationModel', 'HotelModel']);
+        $this->call->model(['RoomTypeModel', 'RoomModel', 'BookingModel', 'PaymentModel', 'NotificationModel', 'HotelModel', 'ServiceRequestModel']);
         $this->call->library('paymongo');
     }
 
@@ -33,7 +33,7 @@ class ApiBookingController extends \Hotelgo\Support\ApiBase
             'revenue_today' => $this->PaymentModel->total('paid', date('Y-m-d 00:00:00')),
             'upcoming' => $this->BookingModel->upcoming(8),
             'week' => $this->week_revenue(),
-            'badges' => ['pending' => $this->PaymentModel->waiting_count()],
+            'badges' => ['pending' => $this->PaymentModel->waiting_count(), 'requests' => $this->ServiceRequestModel->count_new()],
             'hotels' => \Hotelgo\Support\Scope::platform() ? array_map(fn($h) => ['id' => (int) $h['id'], 'name' => $h['name'], 'area' => $h['area'] ?? ''], $this->HotelModel->all()) : [],
             'hotel_stats' => $this->hotel_stats($board),
             'notes' => array_map(fn($n) => ['channel' => $n['channel'], 'status' => $n['status'], 'to' => mask_mobile($n['recipient']) ?: mask_email($n['recipient']), 'at' => $n['created_at']], $this->NotificationModel->recent(5)),
@@ -98,6 +98,8 @@ class ApiBookingController extends \Hotelgo\Support\ApiBase
         $this->ok(['data' => $b,
             'free_rooms' => $this->BookingModel->free_rooms((int) $b['room_type_id'], $b['start_at'], $b['end_at'], (int) ($type['cleaning_buffer_min'] ?? 0), (int) $b['id']),
             'payments' => $this->PaymentModel->for_booking((int) $b['id']),
+            'requests' => array_map(fn($r) => $r + ['owing' => $this->ServiceRequestModel->owing($r)], $this->ServiceRequestModel->for_booking((int) $b['id'])),
+            'online' => $this->paymongo->provider() === 'paymongo',
             'notifications' => $this->NotificationModel->for_booking((int) $b['id'])]);
     }
 

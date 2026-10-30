@@ -25,6 +25,21 @@ $remindAt = fmt_dt(date('Y-m-d H:i:s', strtotime($b['start_at']) - 1800), 'g:i A
   <?php if ($ok): ?><div class="mapcard"><?php if (config_item('google_maps_key') !== ''): ?><iframe title="Map of <?= e(hotel_of($b, 'name')) ?>" loading="lazy" referrerpolicy="no-referrer-when-downgrade" src="https://www.google.com/maps/embed/v1/place?key=<?= e(config_item('google_maps_key')) ?>&amp;q=<?= e(hotel_of($b, 'lat') . ',' . hotel_of($b, 'lng')) ?>"></iframe>
     <?php else: ?><iframe title="Map of <?= e(hotel_of($b, 'name')) ?>" loading="lazy" referrerpolicy="no-referrer" src="<?= e(osm_embed_url($b)) ?>"></iframe><?php endif; ?>
     <div class="info"><h3 style="margin:0 0 6px"><?= e(hotel_of($b, 'name')) ?></h3><p class="mute small"><?= e(hotel_of($b, 'address')) ?></p><a class="btn btn-ink btn-sm" target="_blank" rel="noopener" href="<?= e(maps_link($b)) ?>">Get directions</a></div></div><?php endif; ?>
+  <?php if (!empty($b['is_vip']) && in_array($b['status'], ['confirmed', 'checked_in'], true)): ?>
+  <div class="card vipbox"><div class="ctitle"><span class="ico"><?= icon('star', '#B7791F') ?></span><h3>Your VIP package</h3></div>
+    <?php foreach (included_list($b) as [$t, $d]): ?><div class="row" style="gap:8px;margin:4px 0"><?= icon('check', '#0E7C86', 16) ?><span><b><?= e($t) ?></b><?= $d !== '' ? ' <span class="mute small">· ' . e($d) . '</span>' : '' ?></span></div><?php endforeach; ?>
+    <h4 style="margin:18px 0 8px">Your requests</h4>
+    <?php if (empty($requests)): ?><p class="mute small">Nothing requested yet. Need something else? Ask below.</p><?php endif; ?>
+    <?php foreach ($requests as $r): ?><div class="row between" style="gap:10px;margin:8px 0;align-items:flex-start"><div><b><?= e($r['service']) ?></b><?= $r['note'] !== '' ? '<div class="mute small">' . e($r['note']) . '</div>' : '' ?>
+      <?php if ((float) $r['price'] > 0): ?><div class="small">Price: <b><?= e(money($r['price'])) ?></b><?= $r['paid_at'] ? ' · paid' : '' ?></div><?php endif; ?></div>
+      <div class="row" style="gap:8px"><span class="pill <?= e(match ($r['status']) { 'accepted', 'done' => 'ok', 'declined' => 'bad', default => 'warn' }) ?>"><?= e($r['status']) ?></span>
+      <?php if ($online && (float) $r['price'] > 0 && empty($r['paid_at']) && in_array($r['status'], ['accepted', 'done'], true)): ?><form class="inline" method="post" action="<?= e(site_url('booking/' . $b['booking_ref'] . '/request/' . (int) $r['id'] . '/pay')) ?>"><?= csrf_input() ?><button class="btn btn-sm" type="submit">Pay online</button></form><?php endif; ?></div></div><?php endforeach; ?>
+    <form method="post" action="<?= e(site_url('booking/' . $b['booking_ref'] . '/request')) ?>" class="stack" style="margin-top:14px"><?= csrf_input() ?>
+      <div class="field"><label for="rq_service">What do you need?</label><select id="rq_service" name="service" required><?php foreach ($services as $sv): ?><option><?= e(is_array($sv) ? ($sv['name'] ?? '') : $sv) ?></option><?php endforeach; ?></select></div>
+      <div class="field"><label for="rq_note">Details (optional)</label><input id="rq_note" name="note" maxlength="500" placeholder="e.g. 8 PM, for 4 people"></div>
+      <button class="btn" type="submit">Send request</button>
+      <p class="mute small" style="margin:0">Extras may have a price. The team will confirm it before anything is charged. You can pay at the desk or online.</p></form></div>
+  <?php endif; ?>
 </div>
 <aside class="stack next"><h2 style="font-size:1.5rem">What happens next</h2>
   <?php if ($sms): ?><div class="card"><div class="head"><span class="bubble"><?= icon('message', '#fff', 18) ?></span><b><?= $sms['status'] === 'logged' ? 'SMS (demo, not sent)' : 'SMS sent' ?></b><span class="pill <?= e(status_class($sms['status'])) ?>"><?= e(notice_label($sms['status'])) ?></span></div><div class="msgbox"><?= e($sms['message']) ?></div></div><?php endif; ?>

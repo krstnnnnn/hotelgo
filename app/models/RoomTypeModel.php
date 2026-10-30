@@ -9,9 +9,9 @@ class RoomTypeModel extends Model
 {
     protected $table = 'room_types';
 
-    const SELECT = 't.id, t.hotel_id, t.name, t.description, t.amenities, t.max_guests, t.price_3h, t.price_6h, t.price_12h, t.price_overnight, t.cleaning_buffer_min, t.is_active, t.image_id';
+    const SELECT = 't.id, t.hotel_id, t.name, t.description, t.amenities, t.max_guests, t.price_3h, t.price_6h, t.price_12h, t.price_overnight, t.cleaning_buffer_min, t.is_active, t.image_id, t.is_vip, t.included_services';
 
-    const COLUMNS = ['hotel_id', 'name', 'description', 'amenities', 'max_guests', 'price_3h', 'price_6h', 'price_12h', 'price_overnight', 'cleaning_buffer_min', 'is_active'];
+    const COLUMNS = ['hotel_id', 'name', 'description', 'amenities', 'max_guests', 'price_3h', 'price_6h', 'price_12h', 'price_overnight', 'cleaning_buffer_min', 'is_active', 'is_vip', 'included_services'];
 
     /* ---------------- read ---------------- */
     /* Room types with their hotel. A signed-in hotel user only gets their own hotel; guests get every active hotel (or one: $hotelId / $area). */
@@ -41,6 +41,7 @@ class RoomTypeModel extends Model
     /* Checks and cleans form / API input. Returns the cleaned columns, or null when something is wrong. */
     public function clean(array $in): ?array
     {
+        $isVip = in_array($in['is_vip'] ?? 0, [1, '1', true, 'on'], true);
         $d = [
             'name'                => trim((string) ($in['name'] ?? '')),
             'description'         => mb_substr(trim((string) ($in['description'] ?? '')), 0, 500),
@@ -48,6 +49,8 @@ class RoomTypeModel extends Model
             'max_guests'          => (int) ($in['max_guests'] ?? 2),
             'cleaning_buffer_min' => (int) ($in['cleaning_buffer_min'] ?? 15),
             'is_active'           => in_array($in['is_active'] ?? 0, [1, '1', true, 'on'], true) ? 1 : 0,
+            'is_vip'              => $isVip ? 1 : 0,
+            'included_services'   => $isVip ? self::clean_services((string) ($in['included_services'] ?? '')) : null,   // only a VIP room has a package
             'hotel_id'            => 0,
         ];
         // which hotel: a hotel user is always their own hotel; the platform admin picks one
@@ -62,6 +65,17 @@ class RoomTypeModel extends Model
         $bad = !len_ok($d['name'], 2, 80) || $d['max_guests'] < 1 || $d['max_guests'] > 20 || $d['cleaning_buffer_min'] < 0 || $d['cleaning_buffer_min'] > 180
             || $d['hotel_id'] < 1 || in_array(false, [$d['price_3h'], $d['price_6h'], $d['price_12h'], $d['price_overnight']], true);
         return $bad ? null : $d;
+    }
+
+    /* The services a VIP room includes: one per line, up to 12 lines of 200 characters. Returns the cleaned text, or null when there is none. */
+    public static function clean_services(string $text): ?string
+    {
+        $lines = [];
+        foreach (preg_split('/\R/', $text) as $l) {
+            $l = trim(preg_replace('/^[\s*\-•]+/u', '', trim($l)));
+            if ($l !== '') $lines[] = mb_substr($l, 0, 200);
+        }
+        return $lines ? implode("\n", array_slice($lines, 0, 12)) : null;
     }
 
     /* ---------------- create / update ---------------- */

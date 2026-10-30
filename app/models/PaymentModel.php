@@ -38,6 +38,11 @@ class PaymentModel extends Model
             'created_at' => now_str(), 'paid_at' => now_str(),
         ]);
     }
+    /* Extra money for a booking: a service the guest asked for (service_requests), cash at the desk or a PayMongo link */
+    public function add_extra(array $b, float $amount, string $method, string $provider, string $providerRef): int
+    {
+        return $this->add_paid(['id' => $b['id'], 'total' => $amount], $method, $provider, $providerRef);
+    }
     /* Cash paid at the front desk (walk-in guests) */
     public function add_cash(array $b): int
     {
@@ -60,7 +65,7 @@ class PaymentModel extends Model
     /* The payment shown on the receipt */
     public function receipt_for(int $bookingId): ?array
     {
-        return $this->db->table($this->table)->where('booking_id', $bookingId)->in('status', ['paid', 'refunded'])->order_by('id', 'DESC')->limit(1)->get() ?: null;
+        return $this->db->table($this->table)->where('booking_id', $bookingId)->in('status', ['paid', 'refunded'])->order_by('id', 'ASC')->limit(1)->get() ?: null;
     }
     public function recent(int $limit = 200): array
     {

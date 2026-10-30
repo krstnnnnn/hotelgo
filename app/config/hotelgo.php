@@ -60,3 +60,8 @@ $config['hotelgo_places']              = [];
 
 /* Areas of Puerto Galera shown as quick links (each opens that area on OpenStreetMap in a new tab) */
 $config['hotelgo_areas']               = ['Poblacion', 'Sabang', 'White Beach', 'Talipanan', 'Aninuan', 'Balatero', 'Big La Laguna', 'Small La Laguna', 'Muelle'];
+
+/* VIP rooms: the extra services a guest can request during a stay (a staff member can also type another one). The motel team decides the price. */
+$config['hotelgo_request_services']    = ['Private dining room', 'Karaoke / audio-visual set-up', 'Balcony set-up', 'Special food or chef menu', 'Extra bed or pillows', 'Flowers and decorations',
+    'Airport, port or ferry pick-up', 'Late check-out', 'Other request'];
+$config['hotelgo_max_open_requests']   = 10;     // open requests allowed for one booking

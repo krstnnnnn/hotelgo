@@ -7,7 +7,7 @@ class BookingController extends Controller
     public function __construct()
     {
         parent::__construct();
-        $this->call->model(['RoomTypeModel', 'BookingModel', 'PaymentModel', 'NotificationModel']);
+        $this->call->model(['RoomTypeModel', 'BookingModel', 'PaymentModel', 'NotificationModel', 'ServiceRequestModel']);
         $this->call->library('paymongo');
     }
 
@@ -179,8 +179,31 @@ class BookingController extends Controller
     {
         $b = $this->mine($ref);
         $latest = fn(string $ch) => $this->NotificationModel->latest((int) $b['id'], $ch);
+        $reqs = $this->ServiceRequestModel->for_booking((int) $b['id']);
+        $this->ServiceRequestModel->settle_many(array_map(fn($r) => $r + ['booking_ref' => $b['booking_ref']], $reqs));        // a guest who just paid an extra link is shown as paid
+        $reqs = $this->ServiceRequestModel->for_booking((int) $b['id']);
         render('booking/show', ['b' => $b, 'can_cancel' => $this->BookingModel->can_cancel($b), 'can_modify' => $b['status'] === 'confirmed' && $this->BookingModel->can_cancel($b),
-            'sms' => $latest('sms'), 'mail' => $latest('email'), 'title' => 'Booking ' . $ref]);
+            'sms' => $latest('sms'), 'mail' => $latest('email'), 'requests' => $reqs, 'services' => $this->ServiceRequestModel->services(),
+            'online' => $this->paymongo->provider() === 'paymongo', 'title' => 'Booking ' . $ref]);
+    }
+    /* ---------------- extra services (VIP rooms) ---------------- */
+    public function request_service($ref)
+    {
+        $b = $this->mine($ref);
+        [$ok, $res] = $this->ServiceRequestModel->create($b, post_str('service'), post_str('note'), 'guest');
+        if ($ok) { audit('request_created', $ref . ' · ' . post_str('service')); flash('ok', 'Your request was sent. The motel team will answer you here and by message.'); }
+        else flash('bad', (string) $res);
+        go('booking/' . $ref);
+    }
+    public function request_pay($ref, $id)          // the guest pays the extra price of an accepted request online (payment link)
+    {
+        $b = $this->mine($ref);
+        $r = null;
+        foreach ($this->ServiceRequestModel->for_booking((int) $b['id']) as $x) if ((int) $x['id'] === (int) $id) $r = $x + ['booking_ref' => $b['booking_ref']];
+        if (!$r) abort(404);
+        [$url, $why] = $this->ServiceRequestModel->start_link($r);
+        if (!$url) { flash('bad', $why ?: 'The payment could not be started. Please pay at the desk.'); go('booking/' . $ref); }
+        header('Location: ' . $url, true, 302); exit;
     }
     public function receipt($ref)
     {

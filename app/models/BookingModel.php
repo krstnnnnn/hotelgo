@@ -14,7 +14,7 @@ class BookingModel extends Model
     const COLUMNS = 'b.id, b.booking_ref, b.user_id, b.room_type_id, b.room_id, b.stay_type, b.hours, b.start_at, b.end_at, b.guests, '
         . 'b.guest_name, b.guest_mobile, b.guest_email, b.id_type, b.id_last4, b.room_rate, b.booking_fee, b.total, b.status, '
         . 'b.pay_method, b.pay_ref, b.source, b.hold_expires_at, b.created_at, b.cancelled_at, b.checked_in_at, b.checked_out_at, '
-        . 'b.hotel_id, b.gcal_event_id, t.name AS type_name, r.room_no, h.name AS hotel_name, h.address AS hotel_address, h.lat AS hotel_lat, h.lng AS hotel_lng, h.phone AS hotel_phone';
+        . 'b.hotel_id, b.gcal_event_id, t.name AS type_name, t.is_vip, t.included_services, r.room_no, h.name AS hotel_name, h.address AS hotel_address, h.lat AS hotel_lat, h.lng AS hotel_lng, h.phone AS hotel_phone';
 
     const STATUSES = ['pending_payment', 'confirmed', 'checked_in', 'checked_out', 'cancelled', 'expired'];
 

@@ -71,6 +71,8 @@ $router->group(['middleware' => ['auth']], function ($router) {
     $router->get('/my-bookings', 'BookingController::mine_list');
     $router->get('/booking/{ref}', 'BookingController::show');
     $router->post('/booking/{ref}/cancel', 'BookingController::cancel');
+    $router->post('/booking/{ref}/request', 'BookingController::request_service');
+    $router->post('/booking/{ref}/request/{id}/pay', 'BookingController::request_pay');
     $router->get('/booking/{ref}/calendar.ics', 'BookingController::ics');
     $router->get('/booking/{ref}/receipt', 'BookingController::receipt');
     $router->get('/booking/{ref}/modify', 'BookingController::modify_form');
@@ -173,6 +175,11 @@ $router->group(['prefix' => '/api'], function ($router) {
     $router->post('/staff', 'ApiOwnerController::staff_create');
     $router->put('/staff/{id}', 'ApiOwnerController::staff_update');
     $router->delete('/staff/{id}', 'ApiOwnerController::staff_delete');
+
+    $router->get('/requests', 'ApiRequestController::requests');
+    $router->post('/bookings/{ref}/requests', 'ApiRequestController::add');
+    $router->put('/requests/{id}', 'ApiRequestController::decide');
+    $router->post('/requests/{id}/pay', 'ApiRequestController::pay');
 
     $router->get('/calendar', 'ApiCalendarController::status');
     $router->post('/calendar/test', 'ApiCalendarController::test');

@@ -55,7 +55,9 @@ CREATE TABLE IF NOT EXISTS room_types (
   cleaning_buffer_min INT NOT NULL DEFAULT 15,
   is_active TINYINT NOT NULL DEFAULT 1,
   hotel_id INT NULL,
-  image_id INT NULL
+  image_id INT NULL,
+  is_vip TINYINT NOT NULL DEFAULT 0,
+  included_services TEXT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS rooms (
@@ -123,6 +125,24 @@ CREATE TABLE IF NOT EXISTS payments (
   refunded_at DATETIME NULL,
   FOREIGN KEY (booking_id) REFERENCES bookings(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS service_requests (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  booking_id INT NOT NULL,
+  hotel_id INT NULL,
+  service VARCHAR(120) NOT NULL,
+  note VARCHAR(500) NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'new',
+  price DECIMAL(10,2) NULL,
+  pay_ref VARCHAR(80) NULL,
+  paid_at DATETIME NULL,
+  source VARCHAR(10) NOT NULL DEFAULT 'guest',
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NULL,
+  handled_by INT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE INDEX idx_requests_hotel_status ON service_requests (hotel_id, status);
+CREATE INDEX idx_requests_booking ON service_requests (booking_id);
 
 CREATE TABLE IF NOT EXISTS notifications (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -206,6 +226,15 @@ INSERT INTO room_types (hotel_id, name, description, amenities, max_guests, pric
  (4,'Beach Hut','Cosy hut a few steps from the sand.','Fan, Hot shower',2,500,800,1000,1200,15),
  (4,'Seaview Villa','Villa with a terrace facing the sea.','Aircon, Terrace, TV, Wi-Fi',4,1600,2300,2900,3400,15);
 
+INSERT INTO room_types (hotel_id, name, description, amenities, max_guests, price_3h, price_6h, price_12h, price_overnight, cleaning_buffer_min, is_vip, included_services) VALUES
+ (1,'VIP Luxury Suite','Our most complete suite: the comfort of a normal room, upgraded, with VIP services already included.','Aircon, TV, Mini bar, Balcony, Wi-Fi',4,2800,3900,4800,5600,20,1,'Arrival & escort: direct welcome greeting, priority check-in, personal escort to the room and a welcome note from management
+Upgraded room amenities: luxury bathrobes, slippers, upgraded towel sets, specialty toiletries and a pillow menu
+Complimentary refreshments: fruit basket, chocolates or cookies, fresh flowers and a stocked mini-bar
+Dedicated assistance: 24/7 butler service, daily linen changes, priority room service and fast-track checkout or in-room billing
+Private dining room: an enclosed space for small gatherings, meetings or celebrations, with a private audio-visual or karaoke system
+Personalized hospitality: a dedicated server, a custom tasting menu from the chef, welcome drinks or dessert
+Free Wi-Fi, private restroom access and flexible time allowances for the reservation');
+
 INSERT INTO rooms (hotel_id, room_no, room_type_id, floor) VALUES
  (1,'101',1,1),(1,'102',1,1),(1,'103',1,1),(1,'104',1,1),(1,'105',1,1),(1,'106',1,1),
  (1,'201',2,2),(1,'202',2,2),(1,'203',2,2),(1,'204',2,2),(1,'205',2,2),(1,'206',2,2),
@@ -213,7 +242,8 @@ INSERT INTO rooms (hotel_id, room_no, room_type_id, floor) VALUES
  (1,'401',4,4),(1,'402',4,4),(1,'403',4,4),(1,'404',4,4),(1,'405',4,4),(1,'406',4,4),
  (2,'101',5,1),(2,'102',5,1),(2,'103',5,1),(2,'104',5,1),(2,'201',6,2),(2,'202',6,2),(2,'203',6,2),(2,'204',6,2),
  (3,'101',7,1),(3,'102',7,1),(3,'103',7,1),(3,'104',7,1),(3,'201',8,2),(3,'202',8,2),(3,'203',8,2),(3,'204',8,2),
- (4,'101',9,1),(4,'102',9,1),(4,'103',9,1),(4,'104',9,1),(4,'201',10,2),(4,'202',10,2),(4,'203',10,2),(4,'204',10,2);
+ (4,'101',9,1),(4,'102',9,1),(4,'103',9,1),(4,'104',9,1),(4,'201',10,2),(4,'202',10,2),(4,'203',10,2),(4,'204',10,2),
+ (1,'VIP1',11,3),(1,'VIP2',11,3);
 
 -- Platform admin (no hotel = sees every hotel) + one front-desk account per hotel. Temporary password: ChangeMe!2026  (they MUST change it at first login)
 INSERT INTO users (full_name, email, mobile, password_hash, role, is_active, must_change_password, mobile_verified_at, created_at, hotel_id) VALUES
