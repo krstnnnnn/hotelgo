@@ -2,7 +2,7 @@
 defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 
 /*
-| Plain HTTP client used by the payment, SMS and email providers.
+| Plain HTTP client used by the payment and email providers.
 | Load it with:  $this->call->library('http_client');   then:  $this->http_client->request(...)
 */
 class Http_client

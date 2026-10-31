@@ -2,14 +2,13 @@
 defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 
 /*
-| Email (+ optional SMS) providers.
+| Email providers.
 |   email_provider=appsscript -> FREE: your own Gmail through a small Google Apps Script web app (works on Render free, no domain needed)
 |   email_provider=resend     -> Resend (free plan, but you need your own verified domain to email other people)
-|   sms_provider=semaphore    -> real SMS through Semaphore (paid, optional; off by default)
 |   anything else             -> nothing is sent. The caller saves the message as "logged" (not sent).
 | All settings come from app/config/integrations.php (config_item).
 | Load it with:  $this->call->library('messenger');   then:  $this->messenger->deliver(...)
-| A failed SMS or email NEVER stops a booking: deliver() returns the reason instead of throwing.
+| A failed email NEVER stops a booking: deliver() returns the reason instead of throwing.
 */
 class Messenger
 {
@@ -26,37 +25,6 @@ class Messenger
         $p = config_item('email_provider');
         return ($p === 'appsscript' && config_item('apps_script_url') !== '' && config_item('apps_script_secret') !== '')
             || ($p === 'resend' && config_item('resend_api_key') !== '' && config_item('mail_from') !== '');
-    }
-
-    public function sms_enabled(): bool
-    {
-        return config_item('sms_provider') === 'semaphore' && config_item('sms_api_key') !== '';
-    }
-
-    /* =============== Semaphore (SMS) =============== */
-    public function semaphore_request(string $to, string $message, ?string $otpCode = null): array
-    {
-        $params = ['apikey' => config_item('sms_api_key'), 'number' => to_local_mobile($to), 'message' => $message];
-        if (config_item('sms_sender') !== '') $params['sendername'] = config_item('sms_sender');   // optional: Semaphore uses your default sender name when left out
-        $route = 'messages';
-        if ($otpCode !== null) {                                       // OTP route: our own code is passed in "code", {otp} marks where it goes
-            $route = 'otp'; $params['code'] = $otpCode; $params['message'] = str_replace($otpCode, '{otp}', $message);
-        }
-        return ['url' => 'https://api.semaphore.co/api/v4/' . $route, 'headers' => ['Content-Type: application/x-www-form-urlencoded'], 'body' => http_build_query($params)];
-    }
-    /* returns [status, provider message id, error text] */
-    public function semaphore_parse(int $http, string $body): array
-    {
-        $j = json_decode($body, true);
-        if ($http === 429) return ['failed', null, 'Semaphore rate limit reached. Try again in a minute.'];
-        if ($http >= 200 && $http < 300 && is_array($j) && isset($j[0]['message_id'])) {
-            foreach ($j as $m) {
-                $st = strtolower((string) ($m['status'] ?? ''));
-                if ($st === 'failed' || $st === 'refunded') return ['failed', (string) $m['message_id'], 'Semaphore marked the message as ' . $st . '.'];
-            }
-            return ['sent', (string) $j[0]['message_id'], null];
-        }
-        return ['failed', null, mb_substr('Semaphore error (HTTP ' . $http . '): ' . trim(is_array($j) ? json_encode($j) : $body), 0, 240)];
     }
 
     /* =============== Google Apps Script relay (free email from your own Gmail) =============== */
@@ -98,11 +66,7 @@ class Messenger
     {
         $status = 'logged'; $error = null; $ref = null; $req = null; $parse = null; $follow = false;
         try {
-            if ($channel === 'sms' && $this->sms_enabled()) {
-                $sendText = (stripos(ltrim($message), 'test') === 0) ? 'HOTELGO: ' . $message : $message;   // Semaphore silently drops messages that start with "TEST"
-                $otp = (isset($opts['otp_code']) && config_item('sms_otp_route') === 'otp') ? (string) $opts['otp_code'] : null;
-                $req = $this->semaphore_request($to, $sendText, $otp); $parse = 'semaphore_parse';
-            } elseif ($channel === 'email' && config_item('email_provider') === 'appsscript' && config_item('apps_script_url') !== '' && config_item('apps_script_secret') !== '') {
+            if ($channel === 'email' && config_item('email_provider') === 'appsscript' && config_item('apps_script_url') !== '' && config_item('apps_script_secret') !== '') {
                 if (!str_starts_with(config_item('apps_script_url'), 'https://script.google.com/')) throw new RuntimeException('APPS_SCRIPT_URL must start with https://script.google.com/');
                 $req = $this->appsscript_request($to, $subject, $message, $opts['html'] ?? '', $opts['attachments'] ?? []); $parse = 'appsscript_parse'; $follow = true;
             } elseif ($channel === 'email' && config_item('email_provider') === 'resend' && config_item('resend_api_key') !== '') {

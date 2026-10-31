@@ -2,7 +2,7 @@
 defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 
 /*
-| Shows which of the five integrations are connected (payment, SMS, map, email, calendar).
+| Shows which of the four integrations are connected (payment, map, email, calendar).
 | Used by the owner's Settings page and by the API. It only reads settings, it never sends anything.
 | Load it with:  $this->call->library('integrations');   then:  $this->integrations->status()
 */
@@ -29,9 +29,6 @@ class Integrations
             ['Online payment gateway',
                 $pay->configured(),
                 $pay->configured() ? 'PayMongo · ' . strtoupper($pay->key_mode()) . ' key · public key ' . ($pay->public_key() !== '' ? 'set' : 'not set (optional)') . ' · e-wallets: ' . implode(', ', $pay->wallets()) . ' · payment link for card / bank' : 'Not connected: set PAYMONGO_SECRET_KEY. Guests cannot pay online until it is set.'],
-            ['SMS notification service (optional)',
-                $mail->sms_enabled(),
-                config_item('sms_provider') === 'semaphore' ? 'Semaphore · real SMS (paid)' : 'Off: SMS messages are not sent (a paid provider is needed). Email still works.'],
             ['Google Maps',
                 true,
                 config_item('google_maps_key') !== '' ? 'Google Maps embed + directions' : 'Free map (OpenStreetMap) + "Get directions" opens Google Maps (no key needed)'],

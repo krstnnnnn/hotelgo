@@ -54,7 +54,7 @@ Access tokens last 15 minutes, refresh tokens 7 days (stored hashed in `refresh_
 
 ## Where the website is
 
-The landing page, room search, booking, payment, "My bookings", receipts, the legal pages and the staff console are all in the React project `hotelgo-web`. This API only sends data. Links inside emails and SMS, and the PayMongo return address, are built from `FRONTEND_URL` (`front_url()` in `app/helpers/hotelgo_helper.php`), so set `FRONTEND_URL` to the React site's address.
+The landing page, room search, booking, payment, "My bookings", receipts, the legal pages and the staff console are all in the React project `hotelgo-web`. This API only sends data. Links inside emails, and the PayMongo return address, are built from `FRONTEND_URL` (`front_url()` in `app/helpers/hotelgo_helper.php`), so set `FRONTEND_URL` to the React site's address.
 
 ## Run it on your computer (Laragon)
 

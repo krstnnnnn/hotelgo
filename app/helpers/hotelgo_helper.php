@@ -91,9 +91,6 @@ function included_list(array $t): array {
 function pay_label(string $m): string { return ['ewallet' => 'E-wallet', 'card' => 'Card', 'bank' => 'Bank / OTC', 'cash' => 'Cash'][$m] ?? 'Online'; }
 function notice_label(string $s): string { return ['sent' => 'Sent', 'logged' => 'Not sent', 'failed' => 'Failed', 'retried' => 'Retried'][$s] ?? $s; }
 
-/* Semaphore wants 09XXXXXXXXX (we store +639XXXXXXXXX) */
-function to_local_mobile(string $m): string { return Phone::toLocal($m); }
-
 /* The calendar file (.ics): downloaded on the ticket page AND attached to the confirmation email */
 function ics_content(array $b): string { return Ics::booking($b, hotel_of($b, 'name'), hotel_of($b, 'address')); }
 

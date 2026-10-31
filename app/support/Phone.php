@@ -16,13 +16,6 @@ final class Phone
         return null;
     }
 
-    /** +639171234567 becomes 09171234567 (the format SMS providers expect). */
-    public static function toLocal(string $number): string
-    {
-        $digits = preg_replace('/\D/', '', $number);
-        return str_starts_with($digits, '63') ? '0' . substr($digits, 2) : $digits;
-    }
-
     public static function mask(?string $number): string
     {
         return $number && strlen($number) > 6 ? substr($number, 0, 6) . ' ••• ' . substr($number, -4) : '';

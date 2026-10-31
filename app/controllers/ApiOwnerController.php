@@ -32,7 +32,7 @@ class ApiOwnerController extends \Hotelgo\Support\ApiBase
     {
         $this->need('GET'); $this->who('admin');
         $this->call->library('messenger');
-        $this->ok(['data' => $this->NotificationModel->recent(200), 'services' => ['sms' => $this->messenger->sms_enabled(), 'email' => $this->messenger->email_enabled()]]);
+        $this->ok(['data' => $this->NotificationModel->recent(200), 'services' => ['email' => $this->messenger->email_enabled()]]);
     }
 
     public function notification_retry($id)
