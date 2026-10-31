@@ -6,7 +6,7 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 |   email_provider=appsscript -> FREE: your own Gmail through a small Google Apps Script web app (works on Render free, no domain needed)
 |   email_provider=resend     -> Resend (free plan, but you need your own verified domain to email other people)
 |   sms_provider=semaphore    -> real SMS through Semaphore (paid, optional; off by default)
-|   anything else             -> nothing is sent. The caller saves the message as "logged" (demo).
+|   anything else             -> nothing is sent. The caller saves the message as "logged" (not sent).
 | All settings come from app/config/integrations.php (config_item).
 | Load it with:  $this->call->library('messenger');   then:  $this->messenger->deliver(...)
 | A failed SMS or email NEVER stops a booking: deliver() returns the reason instead of throwing.

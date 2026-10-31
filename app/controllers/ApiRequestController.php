@@ -36,7 +36,7 @@ class ApiRequestController extends \Hotelgo\Support\ApiBase
         $this->ServiceRequestModel->settle_many($rows);                                  // a guest may have paid a link just now
         $rows = $this->ServiceRequestModel->listing($status, 200);
         $this->ok(['data' => array_map(fn($r) => $this->row($r), $rows), 'counts' => $this->ServiceRequestModel->counts(), 'services' => $this->ServiceRequestModel->services(),
-            'online' => $this->paymongo->provider() === 'paymongo']);
+            'online' => $this->paymongo->configured()]);
     }
 
     public function add($ref)                        // POST: the front desk adds a request or an extra charge to a booking

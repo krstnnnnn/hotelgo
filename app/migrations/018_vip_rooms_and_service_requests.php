@@ -6,7 +6,6 @@
 |   room_types.included_services   that package, one service per line ("Title: details")
 |   service_requests               what a guest (or the front desk) asks for during a stay: private dining, karaoke, balcony set-up ...
 |                                  new > accepted (staff may set a price) > done, or declined. An extra price is paid in cash or by PayMongo link.
-| The first hotel also gets one VIP suite as a starting example.
 */
 class Vip_rooms_and_service_requests {
 
@@ -36,16 +35,6 @@ class Vip_rooms_and_service_requests {
         }
         return false;
     }
-
-    const VIP_PACKAGE = [
-        'Arrival & escort: direct welcome greeting, priority check-in, personal escort to the room and a welcome note from management',
-        'Upgraded room amenities: luxury bathrobes, slippers, upgraded towel sets, specialty toiletries and a pillow menu',
-        'Complimentary refreshments: fruit basket, chocolates or cookies, fresh flowers and a stocked mini-bar',
-        'Dedicated assistance: 24/7 butler service, daily linen changes, priority room service and fast-track checkout or in-room billing',
-        'Private dining room: an enclosed space for small gatherings, meetings or celebrations, with a private audio-visual or karaoke system',
-        'Personalized hospitality: a dedicated server, a custom tasting menu from the chef, welcome drinks or dessert',
-        'Free Wi-Fi, private restroom access and flexible time allowances for the reservation',
-    ];
 
     public function up()
     {
@@ -95,24 +84,6 @@ class Vip_rooms_and_service_requests {
             )');
             $db->raw('CREATE INDEX IF NOT EXISTS idx_requests_hotel_status ON service_requests (hotel_id, status)');
             $db->raw('CREATE INDEX IF NOT EXISTS idx_requests_booking ON service_requests (booking_id)');
-        }
-
-        // a starting example: one VIP suite with two rooms in the first hotel (only when no VIP room exists yet)
-        $hotel = $db->table('hotels')->select('id')->order_by('id', 'ASC')->limit(1)->get();
-        if ($hotel && $db->table('room_types')->where('is_vip', 1)->count() === 0) {
-            $hid = (int) $hotel['id'];
-            $tid = (int) $db->table('room_types')->insert([
-                'hotel_id' => $hid, 'name' => 'VIP Luxury Suite',
-                'description' => 'Our most complete suite: the comfort of a normal room, upgraded, with VIP services already included.',
-                'amenities' => 'Aircon, TV, Mini bar, Balcony, Wi-Fi', 'max_guests' => 4,
-                'price_3h' => 2800, 'price_6h' => 3900, 'price_12h' => 4800, 'price_overnight' => 5600, 'cleaning_buffer_min' => 20, 'is_active' => 1,
-                'is_vip' => 1, 'included_services' => implode("\n", self::VIP_PACKAGE),
-            ]);
-            if ($tid > 0) {
-                foreach (['VIP1', 'VIP2'] as $no) {
-                    $db->table('rooms')->insert(['hotel_id' => $hid, 'room_no' => $no, 'room_type_id' => $tid, 'floor' => 3, 'status' => 'active']);
-                }
-            }
         }
     }
 

@@ -99,7 +99,7 @@ class ApiBookingController extends \Hotelgo\Support\ApiBase
             'free_rooms' => $this->BookingModel->free_rooms((int) $b['room_type_id'], $b['start_at'], $b['end_at'], (int) ($type['cleaning_buffer_min'] ?? 0), (int) $b['id']),
             'payments' => $this->PaymentModel->for_booking((int) $b['id']),
             'requests' => array_map(fn($r) => $r + ['owing' => $this->ServiceRequestModel->owing($r)], $this->ServiceRequestModel->for_booking((int) $b['id'])),
-            'online' => $this->paymongo->provider() === 'paymongo',
+            'online' => $this->paymongo->configured(),
             'notifications' => $this->NotificationModel->for_booking((int) $b['id'])]);
     }
 
@@ -119,7 +119,7 @@ class ApiBookingController extends \Hotelgo\Support\ApiBase
         if (!$mobile) $err[] = 'Enter a valid mobile number.';
         if ($err) $this->fail(implode(' ', $err), 422);
         $online = ($in['pay'] ?? 'cash') === 'online';
-        if ($online && $this->paymongo->provider() !== 'paymongo') $this->fail('Online payment is not switched on (PAYMENT_PROVIDER=paymongo).', 422);
+        if ($online && !$this->paymongo->configured()) $this->fail('Online payment is not switched on (set PAYMONGO_SECRET_KEY).', 422);
         $res = $this->BookingModel->walkin($type, $w, ['name' => $name, 'mobile' => $mobile, 'email' => '', 'id_type' => '', 'id_last4' => '', 'guests' => $guests], $stay, $online);
         if (!$res['ok']) $this->fail($res['error'], 409);
         if (!$online) $this->NotificationModel->booking_confirmed($res['booking']);
@@ -187,7 +187,7 @@ class ApiBookingController extends \Hotelgo\Support\ApiBase
         $this->BookingModel->expire_holds();
         $b = $this->ref($ref); $in = $this->body(); $do = (string) ($in['do'] ?? '');
         if (!in_array($do, ['link', 'wallet', 'check', 'cash'], true)) $this->fail('Unknown payment action.', 422);
-        $online = $this->paymongo->provider() === 'paymongo';
+        $online = $this->paymongo->configured();
         if ($b['status'] !== 'pending_payment') {
             $this->ok(['state' => $b['status'], 'message' => 'This booking is not waiting for payment.', 'data' => $b]);
         }
@@ -198,7 +198,7 @@ class ApiBookingController extends \Hotelgo\Support\ApiBase
             $this->log('payment_cash', $ref);
             $this->ok(['state' => 'paid', 'message' => 'Cash received. Booking confirmed.', 'data' => $r['booking']]);
         }
-        if (!$online) $this->fail('Online payment is not switched on (PAYMENT_PROVIDER=paymongo).', 422);
+        if (!$online) $this->fail('Online payment is not switched on (set PAYMONGO_SECRET_KEY).', 422);
         if ($do === 'check') {
             $s = $this->PaymentModel->settle($b);
             if ($s['result'] && in_array($s['result']['status'], ['confirmed', 'confirmed_late'], true)) {

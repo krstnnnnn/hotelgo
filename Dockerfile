@@ -11,17 +11,12 @@ RUN a2enmod rewrite headers \
  && printf 'ServerTokens Prod\nServerSignature Off\nTraceEnable Off\n' > /etc/apache2/conf-available/hotelgo-security.conf \
  && a2enconf hotelgo-security
 
-# PHP safety settings: never show errors to visitors, safer session cookies
+# PHP safety settings: never show errors to visitors (the API uses no sessions or cookies)
 RUN { \
   echo 'expose_php=Off'; \
   echo 'display_errors=Off'; \
   echo 'log_errors=On'; \
   echo 'allow_url_include=Off'; \
-  echo 'session.use_strict_mode=1'; \
-  echo 'session.use_only_cookies=1'; \
-  echo 'session.cookie_httponly=1'; \
-  echo 'session.cookie_samesite=Lax'; \
-  echo 'session.cookie_secure=1'; \
 } > /usr/local/etc/php/conf.d/hotelgo-hardening.ini
 
 # App files

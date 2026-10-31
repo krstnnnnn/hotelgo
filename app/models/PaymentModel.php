@@ -6,8 +6,7 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 | This model keeps the payment records and decides what a payment means for a booking.
 | Talking to PayMongo is done by the library app/libraries/Paymongo.php (it never touches the database).
 |
-|   payment_provider=mock      -> a "sandbox" payment page (school demo only)
-|   payment_provider=paymongo  -> real PayMongo: e-wallet (payment intent) or payment link. Start with TEST keys (sk_test_...).
+|   PayMongo (PAYMONGO_SECRET_KEY): e-wallet (payment intent) or payment link. Start with TEST keys (sk_test_...).
 |                                Paid or not is found by asking PayMongo (settle()). There is no webhook.
 |
 | Payment records are kept for the books: they can be refunded, but never deleted from the website.
@@ -20,7 +19,7 @@ class PaymentModel extends Model
 
     const COLUMNS = 'p.id, p.booking_id, p.txn_ref, p.method, p.provider, p.provider_ref, p.amount, p.status, p.created_at, p.paid_at, p.refunded_at';
 
-    private function gateway()
+    public function gateway()
     {
         return $this->call->library('paymongo');
     }
@@ -128,18 +127,11 @@ class PaymentModel extends Model
     }
 
     /* ======================================================= pay ======================================================= */
-    /* Mock (sandbox) only: where must the guest pay? Returns a web address or null. */
-    public function start(array $b): ?string
-    {
-        $this->error = '';
-        return $this->gateway()->mock_allowed() ? site_url('pay/' . $b['booking_ref']) : null;
-    }
-
     /* E-wallet: returns the wallet's redirect address, or null (see $this->error) */
     public function start_wallet(array $b, string $wallet): ?string
     {
         $gw = $this->gateway();
-        $r  = $gw->wallet_start($wallet, $b, abs_url('pay/' . $b['booking_ref'] . '/return'));
+        $r  = $gw->wallet_start($wallet, $b, front_url('pay/' . $b['booking_ref']));
         return $this->remember($b, $r, $gw);
     }
     /* Payment link (card / online banking / QR): returns the checkout address, or null */
@@ -175,7 +167,7 @@ class PaymentModel extends Model
        Returns ['state' => paid|pending|failed|unreachable|none, 'result' => mark_paid result or null] */
     public function settle(array $b): array
     {
-        if (empty($b['pay_ref']) || $this->gateway()->provider() !== 'paymongo') {
+        if (empty($b['pay_ref']) || !$this->gateway()->configured()) {
             return ['state' => 'none', 'result' => null];
         }
         $st = $this->gateway()->state($b['pay_ref'], $b);

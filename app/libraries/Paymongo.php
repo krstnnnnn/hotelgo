@@ -25,9 +25,9 @@ class Paymongo
         $this->_lava->call->library('http_client');
     }
 
-    public function provider(): string { return (string) config_item('payment_provider'); }
-    /* The fake payment page must NEVER be open on a real (production) site unless you allow it on purpose. */
-    public function mock_allowed(): bool { return !is_production() || (bool) config_item('hotelgo_allow_mock_payment'); }
+    public function provider(): string { return 'paymongo'; }
+    /* true when PAYMONGO_SECRET_KEY is a real sk_test_ / sk_live_ key: online payment is switched on */
+    public function configured(): bool { return $this->key_mode() !== 'invalid'; }
     public function key(): string { return (string) config_item('paymongo_secret_key'); }
     public function public_key(): string { return (string) config_item('paymongo_public_key'); }
     public function key_mode(): string { $k = $this->key(); return str_starts_with($k, 'sk_test_') ? 'test' : (str_starts_with($k, 'sk_live_') ? 'live' : 'invalid'); }

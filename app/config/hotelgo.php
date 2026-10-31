@@ -11,27 +11,17 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 */
 
 /* Booking rules */
-$config['hotelgo_max_unpaid_bookings'] = max(1, (int) (getenv('MAX_UNPAID_BOOKINGS') ?: 1000));  // 1000 = no real limit (demo). Use 3 on a real site.
+$config['hotelgo_max_unpaid_bookings'] = max(1, (int) (getenv('MAX_UNPAID_BOOKINGS') ?: 3));   // unpaid held bookings one guest may have at the same time
 $config['hotelgo_roles']               = ['guest', 'staff', 'admin'];
 
-/* School demo switches (turn both OFF on a real site) */
-$config['hotelgo_demo_show_codes']     = getenv('DEMO_SHOW_CODES') === '1';
-$config['hotelgo_allow_mock_payment']  = getenv('ALLOW_MOCK_PAYMENT') === '1';
 
 /* Network */
 $config['hotelgo_trust_proxy']         = getenv('TRUST_PROXY') === '1';
 $config['hotelgo_app_url']             = rtrim((string) (getenv('APP_URL') ?: ''), '/');
 
-/* Hidden staff door. The owner/staff sign-in page is NOT linked anywhere on the site.
-   STAFF_LOGIN_PATH (in .env) is its secret address, e.g. STAFF_LOGIN_PATH=door-7k3m9q2x  ->  https://yoursite/door-7k3m9q2x
-   Without a valid STAFF_LOGIN_PATH the staff page is OFF on a real site (only 'admin/login' on your own computer). */
-$__slug = trim((string) getenv('STAFF_LOGIN_PATH'), '/');
-if (!preg_match('~^[A-Za-z0-9][A-Za-z0-9_-]{7,60}$~', $__slug) || in_array(strtolower($__slug), ['admin', 'login', 'staff', 'panel', 'api'], true)) {
-    $__slug = (getenv('APP_ENV') === 'production') ? '' : 'admin/login';
-}
+/* The separate React website (hotelgo-web): its address is used in messages, as the payment return address and for CORS.
+   The hidden staff sign-in address (STAFF_PATH) belongs to the React build, not to this server. */
 $config['hotelgo_frontend_url']       = trim(explode(',', (string) getenv('FRONTEND_URL'))[0]);   // address of the separate React app (optional)
-$config['hotelgo_staff_path']          = $__slug;
-unset($__slug);
 
 /* Sign-in protection: wrong tries allowed within the window (seconds) */
 $config['hotelgo_lock_per_account']    = 5;

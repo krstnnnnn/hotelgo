@@ -23,23 +23,22 @@ class Integrations
     {
         $pay  = $this->_lava->paymongo;
         $mail = $this->_lava->messenger;
-        $paymongo = config_item('payment_provider') === 'paymongo';
         $emailProvider = config_item('email_provider');
 
         return [
             ['Online payment gateway',
-                $paymongo ? $pay->key_mode() !== 'invalid' : $pay->mock_allowed(),
-                $paymongo ? 'PayMongo · ' . strtoupper($pay->key_mode()) . ' key · public key ' . ($pay->public_key() !== '' ? 'set' : 'not set (optional)') . ' · e-wallets: ' . implode(', ', $pay->wallets()) . ' · payment link for card / bank' : 'Sandbox (simulation)'],
+                $pay->configured(),
+                $pay->configured() ? 'PayMongo · ' . strtoupper($pay->key_mode()) . ' key · public key ' . ($pay->public_key() !== '' ? 'set' : 'not set (optional)') . ' · e-wallets: ' . implode(', ', $pay->wallets()) . ' · payment link for card / bank' : 'Not connected: set PAYMONGO_SECRET_KEY. Guests cannot pay online until it is set.'],
             ['SMS notification service (optional)',
                 $mail->sms_enabled(),
-                config_item('sms_provider') === 'semaphore' ? 'Semaphore · real SMS (paid)' : 'Demo only: SMS messages are saved in Notifications, not sent (real SMS needs a paid provider)'],
+                config_item('sms_provider') === 'semaphore' ? 'Semaphore · real SMS (paid)' : 'Off: SMS messages are not sent (a paid provider is needed). Email still works.'],
             ['Google Maps',
                 true,
                 config_item('google_maps_key') !== '' ? 'Google Maps embed + directions' : 'Free map (OpenStreetMap) + "Get directions" opens Google Maps (no key needed)'],
             ['Email notification service',
                 $mail->email_enabled(),
                 $emailProvider === 'appsscript' ? 'Free Gmail relay (Google Apps Script) · sign-up codes are emailed'
-                    : ($emailProvider === 'resend' ? 'Resend · from: ' . (config_item('mail_from') ?: 'MAIL_FROM is missing') : 'Demo only: emails are saved in Notifications, not sent')],
+                    : ($emailProvider === 'resend' ? 'Resend · from: ' . (config_item('mail_from') ?: 'MAIL_FROM is missing') : 'Not connected: set EMAIL_PROVIDER and its keys. Sign-up codes cannot be sent until it is set.')],
             ['Google Calendar',
                 $this->_lava->google_calendar->configured(),
                 $this->_lava->google_calendar->configured()

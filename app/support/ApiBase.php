@@ -63,6 +63,19 @@ abstract class ApiBase extends \Controller
         }
         return $this->me;
     }
+    /* A signed-in GUEST (role "guest"). Staff tokens are refused here, and guest tokens are refused by who(), so the two never mix. */
+    protected function member(): array
+    {
+        if ($this->me === null) {
+            $payload = $this->api->require_jwt();
+            $u = $this->UserModel->session_user((int) $payload['sub']);        // also checks is_active
+            if (!$u || $u['role'] !== 'guest') {
+                $this->fail('Unauthorized', 401);
+            }
+            $this->me = $u;
+        }
+        return $this->me;
+    }
     protected function log(string $action, string $detail = ''): void
     {
         $this->AuditModel->record($this->me['id'] ?? null, $action, $detail);

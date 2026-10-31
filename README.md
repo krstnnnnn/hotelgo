@@ -1,24 +1,24 @@
 # HOTELGO API (back end)
 
-> This repository is the **back end only** (LavaLust API + the guest website + database migrations). The React staff console is a **separate repository**: `hotelgo-web`. They talk only through HTTP (the API), and each one is deployed on its own.
+> This repository is the **back end only** (a LavaLust JSON API + database migrations). It has **no web pages of its own**: opening its address shows only a JSON status. The whole website (guest booking pages *and* the staff console) is the **separate React repository** `hotelgo-web`. They talk only through HTTP (the API), and each one is deployed on its own.
 
 Motel booking and room management for Puerto Galera, built on **LavaLust 4.7** (PHP 8). Guests search and book by the hour or overnight, pay online, and get a ticket with a QR code. The front desk and the owner run the motel from a staff area. Team 3F1: Bunquin, Castro, Evora, Gayuso (ITE311).
 
 ## How the pieces fit
 
 ```
-Browser ── pretty pages (PHP views) ──► Routes ─► Middleware ─► Controller ─► Model ─► MySQL
-Other website: hotelgo-web (React) ── HTTP + JWT ─► /api ─► Api*Controller ──┘   (separate repository)
+hotelgo-web (React, its own website) ── HTTP + JWT ─► /api ─► Api*Controller ─► Model ─► MySQL
+This repository answers JSON only; it never sends a page.
 ```
 
 | Layer | Where | What it does |
 |---|---|---|
-| Routes | `app/config/routes.php` | One line per URL; middleware (`csrf`, `guest`, `auth`, `staff`, `admin`) guards groups. |
-| Controllers | `app/controllers/` | Read the request, call models, send a view or JSON. No SQL. |
+| Routes | `app/config/routes.php` | One line per URL. The role check (guest / staff / admin) is made in `ApiBase` from the bearer token. |
+| Controllers | `app/controllers/` | Read the request, call models, send JSON. No SQL. |
 | Models | `app/models/` | All database work through the query builder (`$this->db->table(...)`). One model per table. Raw SQL only for two `SELECT … FOR UPDATE` locks in `BookingModel`. |
 | Libraries | `app/libraries/` | Reusable services loaded with `$this->call->library('name')`: `Paymongo`, `Messenger`, `Http_client`, `Qr`, `Integrations`. Settings come from `app/config/integrations.php` (`config_item()`), which reads `.env`. |
 | Support classes | `app/support/` | Small pure helpers (`Money`, `Phone`, `Csv`, `Ics`) autoloaded by **Composer** (`composer.json`, `composer_autoload = TRUE`). |
-| Views | `app/views/` | Server-rendered pages for guests and the classic staff area. |
+| Views | `app/views/errors/` | Only the framework's own error pages. There are no website pages here. |
 | API | `app/controllers/Api*Controller.php` (Auth, Booking, Guest, Catalog, Owner) + `app/support/ApiBase.php` | JSON endpoints built on LavaLust's `Api` library (JWT access + refresh tokens). One controller per area; shared token check and replies live in `ApiBase`. |
 | Migrations | `app/migrations/`, `app/commands/Migration.php`, `MigrationController` | The database structure as code: `php lava migration run`. |
 | CORS | `app/config/config.php` (`security_headers.cors`), `FRONTEND_URL` in `.env` | Lets the React website (and only it) call `/api` from a browser. |
@@ -31,11 +31,13 @@ Every table has create, read, update and delete. Delete rules protect history: a
 
 ## The JSON API
 
-Base path `/api`. Send `Authorization: Bearer <access token>` and JSON bodies.
+Base path `/api` (`GET /` answers `{"name":"HOTELGO API","status":"ok"}` so you can see the server is alive). Staff tokens are refused on guest endpoints and guest tokens on staff endpoints. Send `Authorization: Bearer <access token>` and JSON bodies.
 
 | Area | Endpoints | Who |
 |---|---|---|
-| Sign in | `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /me`, `POST /me/password` | staff, owner |
+| Sign in (staff) | `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /me`, `POST /me/password` | staff, owner (guests are refused here and use `/guest/login`) |
+| Guest account | `POST /guest/register`, `/guest/verify`, `/guest/verify/resend`, `/guest/login`, `/guest/forgot`, `/guest/reset`; `GET /guest/me`, `POST /guest/password` | anyone / guest |
+| Guest booking | `GET /guest/quote`, `POST /guest/bookings`, `GET /guest/bookings`, `GET /guest/bookings/{ref}`, `POST .../cancel`, `POST .../modify`, `GET/POST .../pay`, `POST .../requests`, `POST .../requests/{id}/pay`, `GET .../receipt`, `GET .../calendar` | signed-in guest |
 | Public | `GET /room-types`, `GET /availability?stay=&date=&time=&hours=&guests=` | anyone |
 | Dashboard | `GET /dashboard` | staff |
 | Bookings | `GET /bookings`, `GET /bookings/{ref}`, `POST /bookings` (walk-in), `PUT /bookings/{ref}`, `POST /bookings/{ref}/action` (`checkin`, `checkout`, `cancel`, `resend`, `reassign`), `DELETE /bookings/{ref}` | staff (delete: owner) |
@@ -50,22 +52,22 @@ Base path `/api`. Send `Authorization: Bearer <access token>` and JSON bodies.
 
 Access tokens last 15 minutes, refresh tokens 7 days (stored hashed in `refresh_tokens`, rotated on every refresh). The role is read from the database on every request, so disabling a staff account cuts it off immediately. A staff account with a temporary password can only change its password until it does.
 
-## Landing page
+## Where the website is
 
-`app/views/home/index.php` (sections: hero + search, about, quote, rooms from the database, what we offer, how it works, map, gallery with viewer, guest voices, FAQ, contact) with styles in `public/assets/css/app.css` and behaviour in `public/assets/js/app.js` (no external scripts). Pictures are SVG scenes in `public/assets/img/`: replace them with real photos of the same name or edit the `<img>` paths. Contact details and map places are in `app/config/hotelgo.php` (`hotelgo_contact_*`, `hotelgo_places`, `hotelgo_areas`). Legal pages: `/terms`, `/privacy`, `/cancellation-policy`, `/house-rules` (text in `app/views/home/legal.php`). The guest-voices comments are labelled samples until real reviews exist.
+The landing page, room search, booking, payment, "My bookings", receipts, the legal pages and the staff console are all in the React project `hotelgo-web`. This API only sends data. Links inside emails and SMS, and the PayMongo return address, are built from `FRONTEND_URL` (`front_url()` in `app/helpers/hotelgo_helper.php`), so set `FRONTEND_URL` to the React site's address.
 
 ## Run it on your computer (Laragon)
 
-1. Copy `.env.example` to `.env` and fill it in (`APP_KEY`, database, `JWT_SECRET`, `REFRESH_TOKEN_KEY`, and `FRONTEND_URL=http://localhost:5173` for the React app). **Never commit `.env`.**
+1. Copy `.env.example` to `.env` and fill it in (`APP_KEY`, database, `PAYMONGO_SECRET_KEY`, the email settings, `JWT_SECRET`, `REFRESH_TOKEN_KEY`, and `FRONTEND_URL=http://localhost:5173` for the React app). **Never commit `.env`.**
 2. Create an empty database (for example `hotelgo`).
 3. In the project folder: `composer install` (creates `vendor/`).
 4. Build the tables with the migration command (see below): `php lava migration run`.
-5. `php lava serve` (or `php -S localhost:8000 -t public`), then open `http://localhost:8000`. The API is at `http://localhost:8000/api`.
-6. Staff sign in: the hidden address you set in `STAFF_LOGIN_PATH` (empty on your own computer = `/admin/login`). First owner account `admin@hotelgo.ph`, temporary password `ChangeMe!2026`; you must change it at first sign-in.
+5. `php lava serve` (or `php -S localhost:8000 -t public`), then open `http://localhost:8000` (you will see the JSON status, not a page). The API is at `http://localhost:8000/api`. Run the React project (`hotelgo-web`) to see the website.
+6. Staff sign in: on the React site, at the hidden address you chose when you built it (`STAFF_PATH`, e.g. `/#/secret1234567890`). First owner account `admin@hotelgo.ph`, temporary password `ChangeMe!2026`; you must change it at first sign-in.
 
 ## Database migrations
 
-The tables are created by migration files in `app/migrations/` (000 to 012: users, refresh_tokens, room_types, rooms, bookings, payments, notifications, audit_logs, login_attempts, otp_codes, settings, starter data).
+The tables are created by migration files in `app/migrations/` (000 to 019: the tables, the first hotel and owner account, and a clean-up of the old sample data).
 
 ```
 php lava migration status                              # what is applied / pending
@@ -84,7 +86,7 @@ The `Dockerfile` installs PHP 8 + Apache and runs `composer install`. Add these 
 
 ## Security notes
 
-Sessions use strict, HTTP-only cookies. All forms carry a CSRF token (the API uses bearer tokens instead). Passwords are hashed. Sign-in and one-time codes are rate limited. Only the last 4 characters of an ID number are stored. Guest records are audited on every view. Card and e-wallet details never touch this server (they are handled on PayMongo's own pages).
+The API uses no cookies and no sessions, so there is nothing for CSRF to attack: every call carries a short-lived bearer token. Passwords are hashed. Sign-in and one-time codes are rate limited. Only the last 4 characters of an ID number are stored. Guest records are audited on every view. Card and e-wallet details never touch this server (they are handled on PayMongo's own pages).
 
 
 ## Real photos
@@ -113,14 +115,14 @@ HOTELGO is a central booking platform: **many hotels in different parts of Puert
 * Every query for staff goes through `app/support/Scope.php`, which limits it to the signed-in person's hotel.
 * Public API: `GET /api/hotels`, `GET /api/availability?...&hotel=ID&area=Sabang`, `GET /api/room-types?hotel=ID`.
 * Staff API: `GET/POST /api/manage/hotels`, `PUT/DELETE /api/manage/hotels/{id}`.
-* `php lava migration run` on an existing database keeps all data: the old motel becomes hotel 1 and three sample hotels are added (edit or hide them on the Hotels page).
-* Sample accounts (temporary password `ChangeMe!2026`, changed at first sign-in): `admin@hotelgo.ph` (platform admin), `rico@hotelgo.ph` (Coral Nest Motel), `staff.sabang@hotelgo.ph`, `staff.talipanan@hotelgo.ph`, `staff.laguna@hotelgo.ph`.
+* `php lava migration run` on an existing database keeps all data. Migration `019` removes the old sample hotels, sample staff accounts and the sample VIP suite, but only those that were never used (no bookings, never signed in). The hotel you really use is never touched.
+* The only account that comes with the system is the owner `admin@hotelgo.ph` (temporary password `ChangeMe!2026`, you must change it at the first sign-in). Add your hotels and staff on the **Hotels** and **Staff** pages.
 
 ## Online payment (PayMongo)
 
-Set `PAYMENT_PROVIDER=paymongo`, `PAYMONGO_PUBLIC_KEY` and `PAYMONGO_SECRET_KEY` (test keys first). There is **no webhook secret**.
+Set `PAYMONGO_SECRET_KEY` (and optionally `PAYMONGO_PUBLIC_KEY`); use the test keys first, then the live keys. Online booking stays closed until the key is set; there is no fake payment page. There is **no webhook secret**.
 Guests pay with an e-wallet (GCash, Maya, GrabPay, ShopeePay: a PayMongo *Payment Intent*) or with a *payment link* (card, online banking, QR).
-Paid or not is never taken from the browser: the system asks PayMongo (`PaymentModel::settle()`) when the guest returns, while the pay page polls `/pay/{ref}/status`, when a room hold ends, and when staff press "Check payment".
+Paid or not is never taken from the browser: the system asks PayMongo (`PaymentModel::settle()`) when the guest returns, while the pay page polls `POST /api/guest/bookings/{ref}/pay` with `{"do":"check"}`, when a room hold ends, and when staff press "Check payment".
 
 ## Google Calendar sync (real, optional)
 
@@ -146,13 +148,9 @@ A **VIP room** looks like a normal room on the website, but it has a fixed highe
 
 A VIP guest can also **ask for something extra** (balcony set-up, karaoke, a chef menu ...). The request does not need the booking to be redone:
 
-1. The guest sends it from the booking page (`/booking/{ref}`), choosing from the list in `app/config/hotelgo.php` (`hotelgo_request_services`).
+1. The guest sends it from the booking page of the React site (`#/booking/{ref}`), choosing from the list in `app/config/hotelgo.php` (`hotelgo_request_services`).
 2. The staff gets a **bell notification** and a badge on **Requests** in the console. They **Accept** it (and may set a **price**), **Decline** it, then **Mark done**.
 3. If there is a price, it is paid **in cash** at the desk or by a **PayMongo payment link** (the guest has a *Pay online* button). The money is saved as one more payment of the booking, so receipts and reports include it. Nothing is charged before the staff has confirmed the price.
 4. The front desk can also add a request or an extra charge to any booking (Reservations > booking > Requests & extras).
 
-Tables and code: `service_requests` (migration `018`), `ServiceRequestModel`, `ApiRequestController`, `BookingController::request_service`, React `pages/Requests.jsx`. Run `php lava migration run` once. The migration adds one example "VIP Luxury Suite" (rooms VIP1 and VIP2) to the first hotel; edit or delete it in **Room types**.
-
-## Where the staff console is
-
-The staff and admin interface is the React app (`hotelgo-web`). When `FRONTEND_URL` is set, every `/admin...` page and the staff sign-in of this PHP site send staff to the console (`FRONTEND_URL/#/<STAFF_LOGIN_PATH>`). If `FRONTEND_URL` is empty, the older server-rendered `/admin` pages are shown instead.
+Tables and code: `service_requests` (migration `018`), `ServiceRequestModel`, `ApiRequestController`, `ApiGuestBookingController::request_add`, React `pages/Requests.jsx`. Run `php lava migration run` once.  (rooms VIP1 and VIP2) to the first hotel; edit or delete it in **Room types**.

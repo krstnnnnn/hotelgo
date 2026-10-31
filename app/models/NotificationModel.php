@@ -3,7 +3,7 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 
 /*
 | Everything the system says to guests: SMS (optional, paid) and email (free Gmail relay). Table: notifications.
-| Every message is saved here with its status: sent / logged (demo, nothing was sent) / failed / retried.
+| Every message is saved here with its status: sent / logged (the service is off, nothing was sent) / failed / retried.
 | Sending is done by the library app/libraries/Messenger.php. A failed SMS or email NEVER stops a booking.
 | Sign-up and password-reset codes go to the guest's EMAIL (free). No SMS needed.
 */
@@ -81,7 +81,7 @@ class NotificationModel extends Model
         $when = fmt_dt($b['start_at'], 'D j M g:i A') . ' - ' . fmt_dt($b['end_at'], 'g:i A');
         $this->send((int) $b['id'], $this->uid($b), 'sms', $b['guest_mobile'], '', 'HOTELGO: Booking ' . $b['booking_ref'] . ' confirmed. Room ' . $b['room_no'] . ', ' . $when . '. Show this ref at check-in.');
         if ($b['guest_email'] === '') return;
-        $link = abs_url('booking/' . $b['booking_ref']);
+        $link = front_url('booking/' . $b['booking_ref']);
         $text = "Hi " . $b['guest_name'] . ",\n\nYour HOTELGO booking is confirmed.\n\nReference: " . $b['booking_ref'] . "\nRoom: " . $b['room_no'] . ' (' . $b['type_name'] . ")\nCheck-in: " . fmt_dt($b['start_at']) . "\nCheck-out: " . fmt_dt($b['end_at']) . "\nPaid: " . money($b['total']) . "\n\n"
             . hotel_of($b, 'name') . ', ' . hotel_of($b, 'address') . "\nDirections: " . maps_link($b) . "\nYour ticket and receipt: " . $link . "\n\nA calendar file is attached. Show your booking reference and a valid ID at check-in.\n";
         $this->send((int) $b['id'], $this->uid($b), 'email', $b['guest_email'], 'Your HOTELGO booking is confirmed', $text, [
@@ -132,7 +132,7 @@ class NotificationModel extends Model
         $price = (float) ($r['price'] ?? 0) > 0 && $r['status'] === 'accepted' ? ' Extra charge: ' . money($r['price']) . '. You can pay it at the desk or online on your booking page.' : '';
         $text = 'HOTELGO: Your request "' . $r['service'] . '" for booking ' . $b['booking_ref'] . ' ' . $what . '.' . $price . ($reply !== '' ? ' Note: ' . $reply : '');
         $this->send((int) $b['id'], $this->uid($b), 'sms', $b['guest_mobile'], '', $text);
-        if ($b['guest_email'] !== '') $this->send((int) $b['id'], $this->uid($b), 'email', $b['guest_email'], 'Your HOTELGO request ' . $what, "Hi " . $b['guest_name'] . ",\n\n" . substr($text, 9) . "\n\nYour booking page: " . abs_url('booking/' . $b['booking_ref']) . "\n");
+        if ($b['guest_email'] !== '') $this->send((int) $b['id'], $this->uid($b), 'email', $b['guest_email'], 'Your HOTELGO request ' . $what, "Hi " . $b['guest_name'] . ",\n\n" . substr($text, 9) . "\n\nYour booking page: " . front_url('booking/' . $b['booking_ref']) . "\n");
     }
     /* sign-up and password-reset codes go to the guest's EMAIL (free). No SMS needed. */
     public function code(int $userId, string $email, string $purpose, string $code): void

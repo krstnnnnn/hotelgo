@@ -59,7 +59,7 @@ class BookingModel extends Model
     /* Holds that were not paid in time stop blocking the room */
     public function expire_holds(): void
     {
-        if (config_item('payment_provider') === 'paymongo') {            // a guest may have paid just before the hold ended: ask PayMongo first, do not expire a paid booking
+        if ($this->models('PaymentModel')->gateway()->configured()) {            // a guest may have paid just before the hold ended: ask PayMongo first, do not expire a paid booking
             $late = $this->db->table($this->table)->where('status', 'pending_payment')->where('hold_expires_at', '<', now_str())->where('pay_ref', '<>', '')->limit(5)->get_all();
             foreach ($late as $b) {
                 $this->models('PaymentModel')->settle($b);
@@ -147,7 +147,7 @@ class BookingModel extends Model
         }
         if ($user) {
             $pending = $this->db->table($this->table)->where('user_id', $user['id'])->where('status', 'pending_payment')->where('hold_expires_at', '>', now_str())->count();
-            $max     = (int) config_item('hotelgo_max_unpaid_bookings');                  // 1000 = no real limit (demo). Use 3 on a real site.
+            $max     = (int) config_item('hotelgo_max_unpaid_bookings');                  // default 3
             if ($pending >= $max) {
                 $this->db->roll_back();
                 return ['ok' => false, 'error' => 'You already have ' . $max . ' unpaid bookings. Please pay or wait for them to expire.'];

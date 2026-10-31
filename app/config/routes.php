@@ -2,25 +2,19 @@
 defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 
 /*
-| HOTELGO routes.  Read top to bottom:  who may open which page?
-|   (no middleware)  = anybody
-|   guest            = only people who are NOT signed in
-|   auth             = any signed-in user
-|   staff            = front desk + admin
-|   admin            = admin (owner) only
-| 'csrf' runs on every route and blocks forged POST requests.
+| HOTELGO routes. This server is the BACK END only: it answers JSON (and one picture route). No HTML pages.
+| The website and the staff console are the separate React project (hotelgo-web).
+|   public   = anybody:   /api/hotels, /api/room-types, /api/availability, /api/photos, guest sign-up / sign-in
+|   guest    = a signed-in guest (bearer token):   /api/guest/...
+|   staff    = front desk + admin (bearer token):  bookings, guests, requests ...
+|   admin    = owner only:                        room types, rooms, staff, settings, payments ...
+| The rules live in the Api*Controller files and app/support/ApiBase.php. No cookies and no CSRF: the bearer token proves who is calling.
 */
-$router->add_global_middleware('csrf');
 
-/* ---------- public pages ---------- */
-$router->get('/', 'HomeController::index');
+/* ---------- the back end itself: JSON status, and the uploaded pictures ---------- */
+$router->get('/', 'ApiRootController::index');
 $router->get('/photo/{id}', 'PhotoController::show');
 $router->where_number('id');
-$router->get('/rooms', 'HomeController::rooms');
-$router->get('/terms', 'HomeController::terms');
-$router->get('/privacy', 'HomeController::privacy');
-$router->get('/cancellation-policy', 'HomeController::cancellation');
-$router->get('/house-rules', 'HomeController::house_rules');
 
 /* ---------- database migrations (see MigrationController: terminal, or MIGRATION_WEB=1 on your own computer) ---------- */
 $router->get('create-migration/{migration_class}', 'MigrationController::create_migration');
@@ -31,97 +25,33 @@ $router->get('refresh', 'MigrationController::refresh');
 $router->get('status', 'MigrationController::status');
 
 
-/* ---------- hidden staff sign-in: address comes from .env (STAFF_LOGIN_PATH), never printed on any page ---------- */
-if (config_item('hotelgo_staff_path') !== '') {
-    $router->group(['middleware' => ['guest']], function ($router) {
-        $router->get('/' . config_item('hotelgo_staff_path'), 'AuthController::staff_login_form');
-        $router->post('/' . config_item('hotelgo_staff_path'), 'AuthController::staff_login');
-    });
-}
-
-/* ---------- sign in / register / reset (only when NOT signed in) ---------- */
-$router->group(['middleware' => ['guest']], function ($router) {
-    $router->get('/login', 'AuthController::login_form');
-    $router->post('/login', 'AuthController::login');
-    $router->get('/register', 'AuthController::register_form');
-    $router->post('/register', 'AuthController::register');
-    $router->get('/forgot', 'AuthController::forgot_form');
-    $router->post('/forgot', 'AuthController::forgot');
-    $router->get('/reset', 'AuthController::reset_form');
-    $router->post('/reset', 'AuthController::reset');
-});
-$router->get('/verify', 'AuthController::verify_form');
-$router->post('/verify', 'AuthController::verify');
-$router->post('/verify/resend', 'AuthController::verify_resend');
-
-/* ---------- any signed-in user ---------- */
-$router->group(['middleware' => ['auth']], function ($router) {
-    $router->post('/logout', 'AuthController::logout');
-    $router->get('/account/password', 'AuthController::password_form');
-    $router->post('/account/password', 'AuthController::password');
-
-    $router->get('/book', 'BookingController::checkout_form');
-    $router->post('/book', 'BookingController::checkout');
-    $router->get('/pay/{ref}', 'BookingController::pay');
-    $router->post('/pay/{ref}/confirm', 'BookingController::pay_confirm');
-    $router->post('/pay/{ref}/wallet', 'BookingController::pay_wallet');
-    $router->post('/pay/{ref}/link', 'BookingController::pay_link');
-    $router->get('/pay/{ref}/status', 'BookingController::pay_status');
-    $router->get('/pay/{ref}/return', 'BookingController::pay_return');
-    $router->get('/my-bookings', 'BookingController::mine_list');
-    $router->get('/booking/{ref}', 'BookingController::show');
-    $router->post('/booking/{ref}/cancel', 'BookingController::cancel');
-    $router->post('/booking/{ref}/request', 'BookingController::request_service');
-    $router->post('/booking/{ref}/request/{id}/pay', 'BookingController::request_pay');
-    $router->get('/booking/{ref}/calendar.ics', 'BookingController::ics');
-    $router->get('/booking/{ref}/receipt', 'BookingController::receipt');
-    $router->get('/booking/{ref}/modify', 'BookingController::modify_form');
-    $router->post('/booking/{ref}/modify', 'BookingController::modify');
-});
-
-/* ---------- front desk (staff + admin) ---------- */
-$router->group(['middleware' => ['staff']], function ($router) {
-    $router->get('/admin', 'AdminController::dashboard');
-    $router->get('/admin/reservations', 'AdminController::reservations');
-    $router->get('/admin/reservations/{ref}', 'AdminController::reservation');
-    $router->post('/admin/reservations/{ref}/action', 'AdminController::reservation_action');
-    $router->get('/admin/walkin', 'AdminController::walkin_form');
-    $router->post('/admin/walkin', 'AdminController::walkin');
-    $router->get('/admin/guests', 'AdminController::guests');
-    $router->get('/admin/guests/{id}', 'AdminController::guest');
-    $router->where_number('id');
-    $router->post('/admin/guests/{id}/note', 'AdminController::guest_note');
-    $router->where_number('id');
-});
-
-/* ---------- owner only (admin) ---------- */
-$router->group(['middleware' => ['admin']], function ($router) {
-    $router->get('/admin/rooms', 'ManageController::rooms');
-    $router->post('/admin/rooms/type', 'ManageController::save_type');
-    $router->post('/admin/rooms/add', 'ManageController::add_room');
-    $router->post('/admin/rooms/{id}/status', 'ManageController::room_status');
-    $router->where_number('id');
-    $router->get('/admin/payments', 'ManageController::payments');
-    $router->post('/admin/payments/{id}/refund', 'ManageController::refund');
-    $router->where_number('id');
-    $router->get('/admin/notifications', 'ManageController::notifications');
-    $router->post('/admin/notifications/{id}/retry', 'ManageController::notification_retry');
-    $router->where_number('id');
-    $router->get('/admin/reports', 'ManageController::reports');
-    $router->get('/admin/reports/export', 'ManageController::export');
-    $router->get('/admin/staff', 'ManageController::staff');
-    $router->post('/admin/staff', 'ManageController::staff_create');
-    $router->post('/admin/staff/{id}/toggle', 'ManageController::staff_toggle');
-    $router->where_number('id');
-    $router->get('/admin/audit', 'ManageController::audit_log');
-    $router->get('/admin/settings', 'ManageController::settings');
-    $router->post('/admin/settings', 'ManageController::settings_save');
-    $router->post('/admin/settings/test-sms', 'ManageController::test_sms');
-    $router->post('/admin/settings/test-email', 'ManageController::test_email');
-});
-
-/* ---------- JSON API for the React console (JWT bearer token, no cookies, no CSRF). Rules live in the Api*Controller files + app/support/ApiBase.php ---------- */
+/* ---------- JSON API (JWT bearer token) ---------- */
 $router->group(['prefix' => '/api'], function ($router) {
+    $router->get('/', 'ApiRootController::index');
+
+    /* the guest account and booking (the website) */
+    $router->post('/guest/register', 'ApiGuestAuthController::register');
+    $router->post('/guest/verify', 'ApiGuestAuthController::verify');
+    $router->post('/guest/verify/resend', 'ApiGuestAuthController::resend');
+    $router->post('/guest/login', 'ApiGuestAuthController::login');
+    $router->post('/guest/forgot', 'ApiGuestAuthController::forgot');
+    $router->post('/guest/reset', 'ApiGuestAuthController::reset');
+    $router->get('/guest/me', 'ApiGuestAuthController::me');
+    $router->post('/guest/password', 'ApiGuestAuthController::password');
+    $router->get('/guest/quote', 'ApiGuestBookingController::quote');
+    $router->post('/guest/bookings', 'ApiGuestBookingController::create');
+    $router->get('/guest/bookings', 'ApiGuestBookingController::bookings');
+    $router->get('/guest/bookings/{ref}', 'ApiGuestBookingController::booking');
+    $router->post('/guest/bookings/{ref}/cancel', 'ApiGuestBookingController::cancel');
+    $router->post('/guest/bookings/{ref}/modify', 'ApiGuestBookingController::modify');
+    $router->get('/guest/bookings/{ref}/pay', 'ApiGuestBookingController::pay_info_get');
+    $router->post('/guest/bookings/{ref}/pay', 'ApiGuestBookingController::pay');
+    $router->post('/guest/bookings/{ref}/requests', 'ApiGuestBookingController::request_add');
+    $router->post('/guest/bookings/{ref}/requests/{id}/pay', 'ApiGuestBookingController::request_pay');
+    $router->get('/guest/bookings/{ref}/receipt', 'ApiGuestBookingController::receipt');
+    $router->get('/guest/bookings/{ref}/calendar', 'ApiGuestBookingController::calendar');
+
+    /* staff and owner (the console) */
     $router->post('/auth/login', 'ApiAuthController::login');
     $router->post('/auth/refresh', 'ApiAuthController::refresh');
     $router->post('/auth/logout', 'ApiAuthController::logout');
