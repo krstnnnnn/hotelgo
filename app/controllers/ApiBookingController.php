@@ -103,27 +103,33 @@ class ApiBookingController extends \Hotelgo\Support\ApiBase
             'notifications' => $this->NotificationModel->for_booking((int) $b['id'])]);
     }
 
-    public function booking_walkin()                 // POST create (walk-in, paid in cash)
+    public function booking_walkin()                 // POST create (front desk: arrival time, pay now / pay later / pay online)
     {
         $this->need('POST'); $this->who();
         $in = $this->body();
         $type = $this->RoomTypeModel->type((int) ($in['room_type_id'] ?? 0));
         $stay = (string) ($in['stay'] ?? ''); $hours = (int) ($in['hours'] ?? 3); $guests = (int) ($in['guests'] ?? 1);
-        $w = $this->BookingModel->window($stay, date('Y-m-d'), date('H:i'), $hours);
-        $name = trim((string) ($in['name'] ?? '')); $mobile = normalize_mobile((string) ($in['mobile'] ?? ''));
+        $date = trim((string) ($in['date'] ?? '')) ?: date('Y-m-d');                  // arrival: today, right now, unless the desk picks another time
+        $time = trim((string) ($in['time'] ?? '')) ?: date('H:i');
+        $w = $this->BookingModel->window($stay, $date, $time, $hours);
+        $name = trim((string) ($in['name'] ?? '')); $rawMobile = trim((string) ($in['mobile'] ?? ''));
+        $mobile = $rawMobile === '' ? '' : normalize_mobile($rawMobile);                // the mobile number is optional
         $err = [];
         if (!$type || !(int) $type['is_active']) $err[] = 'Choose a room type.';
-        if (!$w) $err[] = 'Choose hourly (3, 6 or 12 hours) or overnight.';
+        if (!$w) $err[] = 'Choose a valid stay and arrival time (hourly 3, 6 or 12 hours, or overnight; not in the past, within 60 days).';
         if ($type && ($guests < 1 || $guests > (int) $type['max_guests'])) $err[] = 'Too many guests for that room type.';
         if (!len_ok($name, 2, 120)) $err[] = 'Enter the guest name.';
-        if (!$mobile) $err[] = 'Enter a valid mobile number.';
+        if ($rawMobile !== '' && !$mobile) $err[] = 'Enter a valid mobile number, or leave it empty.';
         if ($err) $this->fail(implode(' ', $err), 422);
-        $online = ($in['pay'] ?? 'cash') === 'online';
-        if ($online && !$this->paymongo->configured()) $this->fail('Online payment is not switched on (set PAYMONGO_SECRET_KEY).', 422);
-        $res = $this->BookingModel->walkin($type, $w, ['name' => $name, 'mobile' => $mobile, 'email' => '', 'id_type' => '', 'id_last4' => '', 'guests' => $guests], $stay, $online);
+        $mode = (string) ($in['pay_mode'] ?? (($in['pay'] ?? 'cash') === 'online' ? 'online' : 'now'));      // now | later | online  (old forms sent pay = cash | online)
+        if (!in_array($mode, ['now', 'later', 'online'], true)) $this->fail('Choose Pay now, Pay later or Pay online.', 422);
+        $method = (string) ($in['method'] ?? 'cash');                                                         // how it is paid at the desk
+        if ($mode === 'now' && !in_array($method, ['cash', 'ewallet', 'card', 'bank'], true)) $this->fail('Choose Cash, E-wallet, Card or Bank / OTC.', 422);
+        if ($mode === 'online' && !$this->paymongo->configured()) $this->fail('Online payment is not switched on (set PAYMONGO_SECRET_KEY).', 422);
+        $res = $this->BookingModel->walkin($type, $w, ['name' => $name, 'mobile' => $mobile, 'email' => '', 'id_type' => '', 'id_last4' => '', 'guests' => $guests], $stay, $mode, $method);
         if (!$res['ok']) $this->fail($res['error'], 409);
-        if (!$online) $this->NotificationModel->booking_confirmed($res['booking']);
-        $this->log($online ? 'walkin_online_started' : 'walkin_created', $res['booking']['booking_ref']);
+        if ($mode === 'now') $this->NotificationModel->booking_confirmed($res['booking']);
+        $this->log($mode === 'online' ? 'walkin_online_started' : ($mode === 'later' ? 'walkin_pay_later' : 'walkin_created'), $res['booking']['booking_ref']);
         $this->ok(['data' => $res['booking']], 201);
     }
 

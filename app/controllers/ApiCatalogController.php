@@ -17,7 +17,8 @@ class ApiCatalogController extends \Hotelgo\Support\ApiBase
     {
         $this->need('GET');
         $q = $this->api->get_query_params();
-        $this->ok(['data' => $this->RoomTypeModel->types(true, (int) ($q['hotel'] ?? 0), (string) ($q['area'] ?? ''))]);
+        $this->ok(['data' => $this->RoomTypeModel->types(true, (int) ($q['hotel'] ?? 0), (string) ($q['area'] ?? '')),
+                   'overnight' => ['start' => setting('overnight_start', '20:00'), 'end' => setting('overnight_end', '12:00')]]);
     }
 
     public function availability()

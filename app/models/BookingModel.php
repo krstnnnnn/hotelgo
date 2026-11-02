@@ -169,18 +169,29 @@ class BookingModel extends Model
         return ['ok' => true, 'ref' => $ref, 'id' => $id];
     }
 
-    /* A guest standing at the front desk pays cash: the booking is confirmed straight away. */
-    public function walkin(array $type, array $w, array $f, string $stay, bool $online = false): array
+    /* A booking made at the front desk.
+       $mode   now    = the guest pays at the desk, so the booking is confirmed straight away ($method = cash | ewallet | card | bank)
+               later  = the room is reserved and the guest pays at the desk later (the room is released if nobody pays 30 minutes after arrival)
+               online = the guest pays on the phone (wallet / link): the room is held until PayMongo says paid */
+    public function walkin(array $type, array $w, array $f, string $stay, string $mode = 'now', string $method = 'cash'): array
     {
-        if ($online) {                                                   // pays on the phone (wallet / link): the room is held until PayMongo says paid
+        if ($mode === 'online') {
             $res = $this->create(null, $type, $w, $f, $stay, 'walkin', 'pending_payment', 'ewallet');
             return $res['ok'] ? $res + ['booking' => $this->by_ref($res['ref'])] : $res;
         }
-        $res = $this->create(null, $type, $w, $f, $stay, 'walkin', 'confirmed', 'cash');
+        if ($mode === 'later') {
+            $res = $this->create(null, $type, $w, $f, $stay, 'walkin', 'pending_payment', '');
+            if (!$res['ok']) return $res;
+            $until = max(strtotime($w['start']) + 1800, time() + 1800);       // 30 minutes after arrival (never less than 30 minutes from now)
+            $this->db->table($this->table)->where('id', $res['id'])->update(['hold_expires_at' => date('Y-m-d H:i:s', $until)]);
+            return $res + ['booking' => $this->by_ref($res['ref'])];
+        }
+        $method = in_array($method, ['cash', 'ewallet', 'card', 'bank'], true) ? $method : 'cash';
+        $res = $this->create(null, $type, $w, $f, $stay, 'walkin', 'confirmed', $method);
         if (!$res['ok']) return $res;
         $this->db->table($this->table)->where('id', $res['id'])->update(['hold_expires_at' => null]);
         $b = $this->by_ref($res['ref']);
-        $this->models('PaymentModel')->add_cash($b);
+        $this->models('PaymentModel')->add_paid($b, $method, 'frontdesk', '');
         $this->calendar((int) $res['id']);
         return $res + ['booking' => $b];
     }
