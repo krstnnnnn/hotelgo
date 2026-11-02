@@ -36,7 +36,7 @@ Base path `/api` (`GET /` answers `{"name":"HOTELGO API","status":"ok"}` so you 
 | Area | Endpoints | Who |
 |---|---|---|
 | Sign in (staff) | `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /me`, `POST /me/password` | staff, owner (guests are refused here and use `/guest/login`) |
-| Guest account | `POST /guest/register`, `/guest/verify`, `/guest/verify/resend`, `/guest/login`, `/guest/forgot`, `/guest/reset`; `GET /guest/me`, `POST /guest/password` | anyone / guest |
+| Guest account | `POST /guest/register`, `/guest/verify`, `/guest/verify/resend`, `/guest/login` (email or mobile), `GET/POST /guest/google`, `/guest/forgot`, `/guest/reset`; `GET /guest/me`, `POST /guest/password` | anyone / guest |
 | Guest booking | `GET /guest/quote`, `POST /guest/bookings`, `GET /guest/bookings`, `GET /guest/bookings/{ref}`, `POST .../cancel`, `POST .../modify`, `GET/POST .../pay`, `POST .../requests`, `POST .../requests/{id}/pay`, `GET .../receipt`, `GET .../calendar` | signed-in guest |
 | Public | `GET /room-types`, `GET /availability?stay=&date=&time=&hours=&guests=` | anyone |
 | Dashboard | `GET /dashboard` | staff |
@@ -54,7 +54,7 @@ Access tokens last 15 minutes, refresh tokens 7 days (stored hashed in `refresh_
 
 ## Where the website is
 
-The landing page, room search, booking, payment, "My bookings", receipts, the legal pages and the staff console are all in the React project `hotelgo-web`. This API only sends data. Links inside emails, and the PayMongo return address, are built from `FRONTEND_URL` (`front_url()` in `app/helpers/hotelgo_helper.php`), so set `FRONTEND_URL` to the React site's address.
+The landing page, room search, booking, payment, "My bookings", receipts, the legal pages and the staff console are all in the React project `hotelgo-web`. This API only sends data. Links inside emails and SMS, and the PayMongo return address, are built from `FRONTEND_URL` (`front_url()` in `app/helpers/hotelgo_helper.php`), so set `FRONTEND_URL` to the React site's address.
 
 ## Run it on your computer (Laragon)
 
@@ -67,7 +67,7 @@ The landing page, room search, booking, payment, "My bookings", receipts, the le
 
 ## Database migrations
 
-The tables are created by migration files in `app/migrations/` (000 to 019: the tables, the first hotel and owner account, and a clean-up of the old sample data).
+The tables are created by migration files in `app/migrations/` (000 to 020: the tables, the first hotel and owner account, a clean-up of the old sample data, and an optional mobile number for Google guests).
 
 ```
 php lava migration status                              # what is applied / pending
@@ -123,6 +123,19 @@ HOTELGO is a central booking platform: **many hotels in different parts of Puert
 Set `PAYMONGO_SECRET_KEY` (and optionally `PAYMONGO_PUBLIC_KEY`); use the test keys first, then the live keys. Online booking stays closed until the key is set; there is no fake payment page. There is **no webhook secret**.
 Guests pay with an e-wallet (GCash, Maya, GrabPay, ShopeePay: a PayMongo *Payment Intent*) or with a *payment link* (card, online banking, QR).
 Paid or not is never taken from the browser: the system asks PayMongo (`PaymentModel::settle()`) when the guest returns, while the pay page polls `POST /api/guest/bookings/{ref}/pay` with `{"do":"check"}`, when a room hold ends, and when staff press "Check payment".
+
+## Continue with Google (guest sign-in, optional)
+
+The guest sign-in and sign-up pages have a **Continue with Google** button. The guest picks a Google account, Google gives the page a signed ID token, the page sends it to `POST /api/guest/google`, and `app/libraries/Google_signin.php` asks Google to check it (right app, not expired, email confirmed). The first time, a guest account is created (no code is needed because Google confirmed the email; the mobile number is asked at the first booking). A staff or owner email is refused there: staff use their own sign-in.
+
+Set it up once:
+
+1. Google Cloud Console > **APIs & Services > Credentials > Create credentials > OAuth client ID > Web application**.
+2. **Authorised JavaScript origins**: the address of the React site (`https://hotelgo-web.onrender.com`, and `http://localhost:5173` for your computer).
+3. Copy the **Client ID** into `GOOGLE_CLIENT_ID` (Render > Environment). No secret is needed.
+4. Run `php lava migration run` once (migration `020` lets `users.mobile` be empty for Google guests).
+
+Without `GOOGLE_CLIENT_ID` the button is hidden and everything else works. Guests can also sign in with their **email or mobile number** and password.
 
 ## Google Calendar sync (real, optional)
 

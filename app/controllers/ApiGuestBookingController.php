@@ -6,7 +6,7 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 |   GET  /api/guest/quote?type=&stay=&date=&time=&hours=&guests=     price, fee, window and free rooms before booking
 |   POST /api/guest/bookings                                          create a booking (held, waiting for payment)
 |   GET  /api/guest/bookings?tab=upcoming|past|cancelled              my bookings
-|   GET  /api/guest/bookings/{ref}                                    one booking (+ package, requests, QR, last email)
+|   GET  /api/guest/bookings/{ref}                                    one booking (+ package, requests, QR, last SMS / email)
 |   POST /api/guest/bookings/{ref}/cancel      POST .../modify {date,time}
 |   GET  /api/guest/bookings/{ref}/pay                                how to pay (provider, wallets, time left)
 |   POST /api/guest/bookings/{ref}/pay        { do: wallet|link|confirm|check }
@@ -85,6 +85,7 @@ class ApiGuestBookingController extends \Hotelgo\Support\ApiBase
         $f['id_last4'] = substr($idNum, -4);      // we keep ONLY the last 4 characters of the ID number (data privacy)
         $res = $this->BookingModel->create($me, $sv['type'], $sv['w'], $f, $sv['p']['stay'], 'online', 'pending_payment', $method);
         if (!$res['ok']) $this->fail($res['error'], 409);
+        if (empty($me['mobile']) && !$this->UserModel->by_mobile($f['mobile'])) $this->UserModel->save_profile((int) $me['id'], ['mobile' => $f['mobile']]);   // a Google sign-up has no number yet: keep the one they just gave
         $this->log('booking_created', $res['ref']);
         $this->ok(['booking_ref' => $res['ref'], 'status' => 'pending_payment'], 201);
     }
@@ -106,7 +107,7 @@ class ApiGuestBookingController extends \Hotelgo\Support\ApiBase
         $reqs = array_map(fn($r) => $r + ['owing' => $this->ServiceRequestModel->owing($r)], $this->ServiceRequestModel->for_booking((int) $b['id']));
         $ok = in_array($b['status'], ['confirmed', 'checked_in'], true);
         $this->ok(['data' => $this->clean_booking($b), 'can_cancel' => $this->BookingModel->can_cancel($b), 'can_modify' => $b['status'] === 'confirmed' && $this->BookingModel->can_cancel($b),
-            'mail' => $latest('email'), 'requests' => $reqs, 'services' => $this->ServiceRequestModel->services(), 'online' => $this->online(),
+            'sms' => $latest('sms'), 'mail' => $latest('email'), 'requests' => $reqs, 'services' => $this->ServiceRequestModel->services(), 'online' => $this->online(),
             'included' => included_list($b), 'qr' => $ok ? qr_svg(front_url('bookings/' . $b['booking_ref'])) : null,
             'hotel' => ['name' => hotel_of($b, 'name'), 'address' => hotel_of($b, 'address'), 'lat' => (float) hotel_of($b, 'lat'), 'lng' => (float) hotel_of($b, 'lng')],
             'cancel_hours' => (int) setting('cancel_hours', '2')]);

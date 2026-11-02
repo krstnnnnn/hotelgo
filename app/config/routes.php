@@ -34,6 +34,8 @@ $router->group(['prefix' => '/api'], function ($router) {
     $router->post('/guest/verify', 'ApiGuestAuthController::verify');
     $router->post('/guest/verify/resend', 'ApiGuestAuthController::resend');
     $router->post('/guest/login', 'ApiGuestAuthController::login');
+    $router->get('/guest/google', 'ApiGuestAuthController::google_config');
+    $router->post('/guest/google', 'ApiGuestAuthController::google');
     $router->post('/guest/forgot', 'ApiGuestAuthController::forgot');
     $router->post('/guest/reset', 'ApiGuestAuthController::reset');
     $router->get('/guest/me', 'ApiGuestAuthController::me');

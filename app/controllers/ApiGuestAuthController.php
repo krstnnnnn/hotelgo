@@ -6,7 +6,8 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 |   POST /api/guest/register        { full_name, email, mobile, password, password2, agree }   > a code is sent, verify next
 |   POST /api/guest/verify          { email, code }                                           > signed in (tokens)
 |   POST /api/guest/verify/resend   { email }
-|   POST /api/guest/login           { email, password }                                       > tokens (or 403 need_verify)
+|   POST /api/guest/login           { identifier (email or mobile number), password }         > tokens (or 403 need_verify)
+|   GET  /api/guest/google          > { enabled, client_id }   POST /api/guest/google { credential }  > tokens (Continue with Google)
 |   POST /api/guest/forgot          { email }                                                 > a reset code is sent
 |   POST /api/guest/reset           { email, code, password, password2 }
 |   GET  /api/guest/me             POST /api/guest/password { current, password }
@@ -19,6 +20,7 @@ class ApiGuestAuthController extends \Hotelgo\Support\ApiBase
     {
         parent::__construct();
         $this->call->model(['LoginAttemptModel', 'OtpModel', 'NotificationModel']);
+        $this->call->library('google_signin');
     }
 
     private function tokens(array $u): array
@@ -94,19 +96,52 @@ class ApiGuestAuthController extends \Hotelgo\Support\ApiBase
     {
         $this->need('POST');
         $in = $this->body();
-        $email = strtolower(trim((string) ($in['email'] ?? ''))); $pass = (string) ($in['password'] ?? '');
-        if ($this->LoginAttemptModel->too_many($email)) $this->fail('Too many wrong attempts. Please wait 15 minutes and try again.', 429);
-        $u = $this->UserModel->by_email($email);
-        $hash = $u['password_hash'] ?? '$2y$10$KWVj55JT.MtZUELFuZGH3OxA3815e58s7wtmIJFWHbtyqiJxN705O';   // same timing for unknown emails
+        $who = strtolower(trim((string) ($in['identifier'] ?? $in['email'] ?? ''))); $pass = (string) ($in['password'] ?? '');
+        if ($this->LoginAttemptModel->too_many($who)) $this->fail('Too many wrong attempts. Please wait 15 minutes and try again.', 429);
+        $u = str_contains($who, '@') ? $this->UserModel->by_email($who) : (($m = normalize_mobile($who)) ? $this->UserModel->by_mobile($m) : null);   // email or mobile number
+        $hash = $u['password_hash'] ?? '$2y$10$KWVj55JT.MtZUELFuZGH3OxA3815e58s7wtmIJFWHbtyqiJxN705O';   // same timing for unknown accounts
         $ok = password_verify($pass, $hash) && $u && (int) $u['is_active'] === 1 && $u['role'] === 'guest';      // staff use their own sign-in
-        $this->LoginAttemptModel->record($email, $ok);
-        if (!$ok) { usleep(400000); $this->fail('Email or password is incorrect.', 401); }
+        $this->LoginAttemptModel->record($who, $ok);
+        if (!$ok) { usleep(400000); $this->fail('Email, mobile number or password is incorrect.', 401); }
         if (empty($u['mobile_verified_at'])) {
             $this->need_email(); $this->send_code($u, 'verify');
-            $this->ok(['error' => 'Please verify your account first. We sent you a code.', 'need_verify' => true, 'email' => $email], 403);
+            $this->ok(['error' => 'Please verify your account first. We sent you a code.', 'need_verify' => true, 'email' => $u['email']], 403);
         }
         $this->UserModel->touch_login((int) $u['id']);
         $this->AuditModel->record((int) $u['id'], 'guest_login', '');
+        $this->ok(['tokens' => $this->tokens($u), 'user' => $this->publicUser($this->UserModel->session_user((int) $u['id']) ?: $u)]);
+    }
+
+    /* Is "Continue with Google" switched on? The page asks first and hides the button when it is not. */
+    public function google_config()
+    {
+        $this->need('GET');
+        $this->ok(['enabled' => $this->google_signin->configured(), 'client_id' => $this->google_signin->configured() ? $this->google_signin->client_id() : '']);
+    }
+
+    /* "Continue with Google": sign in, or create the guest account on the first time. Google has confirmed the email, so no code is needed. */
+    public function google()
+    {
+        $this->need('POST');
+        $key = 'google:' . client_ip();
+        if ($this->LoginAttemptModel->too_many($key)) $this->fail('Too many attempts. Please wait 15 minutes and try again.', 429);
+        $g = $this->google_signin->verify((string) ($this->body()['credential'] ?? ''));
+        if (!$g) {
+            $this->LoginAttemptModel->record($key, false);
+            $this->fail($this->google_signin->error ?: 'The Google sign-in was not valid.', $this->google_signin->configured() ? 401 : 404);
+        }
+        $u = $this->UserModel->by_email($g['email']);
+        if ($u && ($u['role'] !== 'guest' || (int) $u['is_active'] !== 1)) $this->fail('This Google account cannot be used here.', 403);   // staff sign in on the staff page
+        if (!$u) {
+            $name = len_ok($g['name'], 2, 120) ? $g['name'] : ucfirst(strstr($g['email'], '@', true));
+            $id = $this->UserModel->create_with_google($name, $g['email']);
+            $this->AuditModel->record($id, 'guest_google_signup', '');
+            $u = $this->UserModel->by_id($id);
+        } elseif (empty($u['mobile_verified_at'])) {
+            $this->UserModel->mark_verified((int) $u['id']);                          // Google confirmed this email address
+        }
+        $this->UserModel->touch_login((int) $u['id']);
+        $this->AuditModel->record((int) $u['id'], 'guest_login', 'google');
         $this->ok(['tokens' => $this->tokens($u), 'user' => $this->publicUser($this->UserModel->session_user((int) $u['id']) ?: $u)]);
     }
 

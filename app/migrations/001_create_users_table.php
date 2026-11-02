@@ -20,7 +20,7 @@ class Create_users_table {
                 'id' => ['type' => 'INT', 'constraint' => 11, 'auto_increment' => TRUE],
                 'full_name' => ['type' => 'VARCHAR', 'constraint' => 120],
                 'email' => ['type' => 'VARCHAR', 'constraint' => 150],
-                'mobile' => ['type' => 'VARCHAR', 'constraint' => 20],
+                'mobile' => ['type' => 'VARCHAR', 'constraint' => 20, 'null' => TRUE, 'default' => NULL],      // empty for a guest who signed up with Google (they give it when booking)
                 'password_hash' => ['type' => 'VARCHAR', 'constraint' => 255],
                 'role' => ['type' => 'VARCHAR', 'constraint' => 10, 'default' => 'guest'],
                 'is_active' => ['type' => 'TINYINT', 'constraint' => 4, 'default' => 1],

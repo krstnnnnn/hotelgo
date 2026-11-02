@@ -117,6 +117,23 @@ class UserModel extends Model
         ]);
     }
 
+    /* A guest who signed up with Google: the email is already confirmed, there is no mobile number yet, and the password is random
+       (they can set their own later with "Forgot password"). */
+    public function create_with_google(string $name, string $email): int
+    {
+        return (int) $this->insert([
+            'full_name'            => $name,
+            'email'                => strtolower($email),
+            'mobile'               => null,
+            'password_hash'        => password_hash(bin2hex(random_bytes(24)), PASSWORD_DEFAULT),
+            'role'                 => 'guest',
+            'is_active'            => 1,
+            'must_change_password' => 0,
+            'mobile_verified_at'   => now_str(),
+            'created_at'           => now_str(),
+        ]);
+    }
+
     /* The owner creates a front-desk account with a temporary password. Returns [ok, message, temporary password, id]. */
     public function create_staff(string $name, string $email, string $mobile, int $hotelId = 0, string $role = 'staff'): array
     {
