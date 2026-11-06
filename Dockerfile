@@ -6,7 +6,7 @@ FROM php:${PHP_VERSION}-apache
 RUN docker-php-ext-install pdo pdo_mysql
 
 # Apache: pretty URLs + allow .htaccess + hide the server version
-RUN a2enmod rewrite headers \
+RUN a2enmod rewrite headers deflate \
  && sed -i '/<Directory \/var\/www\/>/,/<\/Directory>/ s/AllowOverride None/AllowOverride All/' /etc/apache2/apache2.conf \
  && printf 'ServerTokens Prod\nServerSignature Off\nTraceEnable Off\n' > /etc/apache2/conf-available/hotelgo-security.conf \
  && a2enconf hotelgo-security
@@ -18,6 +18,17 @@ RUN { \
   echo 'log_errors=On'; \
   echo 'allow_url_include=Off'; \
 } > /usr/local/etc/php/conf.d/hotelgo-hardening.ini
+
+# Speed: keep the compiled PHP in memory (opcache) and compress JSON answers
+RUN { \
+  echo 'opcache.enable=1'; \
+  echo 'opcache.memory_consumption=128'; \
+  echo 'opcache.max_accelerated_files=10000'; \
+  echo 'opcache.validate_timestamps=0'; \
+  echo 'realpath_cache_size=4096K'; \
+} > /usr/local/etc/php/conf.d/hotelgo-speed.ini \
+ && printf 'AddOutputFilterByType DEFLATE application/json text/html text/css application/javascript\n' > /etc/apache2/conf-available/hotelgo-deflate.conf \
+ && a2enconf hotelgo-deflate
 
 # App files
 COPY . /var/www/html/

@@ -128,14 +128,32 @@ class BookingModel extends Model
         return array_values(array_filter($rooms, fn($r) => !isset($busy[(int) $r['id']])));
     }
 
-    /* How many rooms are free for each room type */
-    public function availability(string $start, string $end, int $hotelId = 0, string $area = ''): array
+    /* How many rooms are free for each room type.
+       ONE query for the rooms and ONE for the busy bookings of ALL the types (not three queries per type): the database is far away
+       (Aiven), so every query costs a network round trip and a long list of room types made the pages slow. */
+    public function availability(string $start, string $end, int $hotelId = 0, string $area = '', ?array $types = null): array
     {
         $this->expire_holds();
-        $out = [];
-        foreach ($this->models('RoomTypeModel')->types(true, $hotelId, $area) as $t) {
-            $out[(int) $t['id']] = count($this->free_rooms((int) $t['id'], $start, $end, (int) $t['cleaning_buffer_min']));
+        $types = $types ?? $this->models('RoomTypeModel')->types(true, $hotelId, $area);
+        if (!$types) return [];
+        $buffer = [];
+        foreach ($types as $t) $buffer[(int) $t['id']] = (int) $t['cleaning_buffer_min'];
+        $rooms = $this->db->table('rooms')->select('id, room_type_id')->in('room_type_id', array_keys($buffer))->where('status', 'active')->get_all();
+        $busy = [];
+        if ($rooms) {
+            $maxBuf = max($buffer) * 60;
+            $this->db->table($this->table)->select('room_id, start_at, end_at, status, hold_expires_at')->in('room_id', array_column($rooms, 'id'))
+                ->in('status', ['confirmed', 'checked_in', 'pending_payment'])
+                ->where('start_at', '<', date('Y-m-d H:i:s', strtotime($end) + $maxBuf))->where('end_at', '>', date('Y-m-d H:i:s', strtotime($start) - $maxBuf));
+            $now = now_str(); $typeOf = array_column($rooms, 'room_type_id', 'id');
+            foreach ($this->db->get_all() as $b) {
+                if ($b['status'] === 'pending_payment' && $b['hold_expires_at'] <= $now) continue;          // an unpaid hold that ran out does not block
+                $buf = $buffer[(int) $typeOf[(int) $b['room_id']]] * 60;
+                if (strtotime($b['start_at']) < strtotime($end) + $buf && strtotime($b['end_at']) > strtotime($start) - $buf) $busy[(int) $b['room_id']] = true;
+            }
         }
+        $out = array_fill_keys(array_keys($buffer), 0);
+        foreach ($rooms as $r) if (!isset($busy[(int) $r['id']])) $out[(int) $r['room_type_id']]++;
         return $out;
     }
 

@@ -35,9 +35,10 @@ class ApiCatalogController extends \Hotelgo\Support\ApiBase
             $this->fail('Choose a valid stay type, date and start time (not in the past, within 60 days; day stays up to ' . max_stay_days() . ' days).', 422);
         }
         $hotel = (int) ($q['hotel'] ?? 0); $area = (string) ($q['area'] ?? '');
-        $avail = $this->BookingModel->availability($w['start'], $w['end'], $hotel, $area);
+        $types = $this->RoomTypeModel->types(true, $hotel, $area);
+        $avail = $this->BookingModel->availability($w['start'], $w['end'], $hotel, $area, $types);
         $rows = [];
-        foreach ($this->RoomTypeModel->types(true, $hotel, $area) as $t) {
+        foreach ($types as $t) {
             if ((int) $t['max_guests'] < $guests) continue;
             if ($q['stay'] === 'daily' && (float) $t['price_daily'] <= 0) continue;         // this room type has no day stays
             $t['free']  = $avail[(int) $t['id']] ?? 0;
