@@ -47,14 +47,17 @@ class SettingModel extends Model
         'motel_lat' => '/^-?\d{1,3}(\.\d{1,8})?$/', 'motel_lng' => '/^-?\d{1,3}(\.\d{1,8})?$/',
         'booking_fee' => '/^\d{1,4}(\.\d{1,2})?$/', 'hold_minutes' => '/^\d{1,2}$/', 'cancel_hours' => '/^\d{1,2}$/',
         'overnight_start' => '/^([01]\d|2[0-3]):[0-5]\d$/', 'overnight_end' => '/^([01]\d|2[0-3]):[0-5]\d$/',
+        'daily_checkin' => '/^([01]\d|2[0-3]):[0-5]\d$/', 'daily_checkout' => '/^([01]\d|2[0-3]):[0-5]\d$/', 'max_stay_days' => '/^([1-9]|[1-5]\d|60)$/',
     ];
+    /* what a setting is when the database has no row for it yet (a site created before the setting existed) */
+    const DEFAULTS = ['daily_checkin' => '14:00', 'daily_checkout' => '12:00', 'max_stay_days' => '30'];
 
     /* Checks every value, then saves all of them. Returns an error message, or null when saved. */
     public function save_all(array $input): ?string
     {
         $clean = [];
         foreach (self::RULES as $key => $pattern) {
-            $value = trim((string) ($input[$key] ?? $this->value($key)));
+            $value = trim((string) ($input[$key] ?? $this->value($key, self::DEFAULTS[$key] ?? '')));
             if (!preg_match($pattern, $value)) {
                 return 'Invalid value for ' . str_replace('_', ' ', $key) . '.';
             }

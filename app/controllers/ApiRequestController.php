@@ -6,6 +6,7 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 |   GET  /api/requests?status=open|new|accepted|done|declined|all   the list + counts + the service names
 |   POST /api/bookings/{ref}/requests                                the front desk adds a request / extra charge for a booking
 |   PUT  /api/requests/{id}                                          { do: accept | decline | done, price?, reply? }
+|   DELETE /api/requests/{id}                                       delete a request (not one that was paid)
 |   POST /api/requests/{id}/pay                                      { do: cash | link | check }   (the extra price)
 | Front desk and owners can all use it. Hotel staff only ever see the requests of their own hotel (Scope).
 */
@@ -63,6 +64,16 @@ class ApiRequestController extends \Hotelgo\Support\ApiBase
         if (!$ok) $this->fail($msg, 409);
         $this->log('request_' . (string) $in['do'], $r['booking_ref'] . ' · ' . $r['service']);
         $this->ok(['message' => $msg, 'data' => $this->row($this->request((int) $id))]);
+    }
+
+    public function remove($id)                      // DELETE
+    {
+        $this->need('DELETE'); $this->who();
+        $r = $this->request((int) $id);
+        [$ok, $msg] = $this->ServiceRequestModel->remove($r);
+        if (!$ok) $this->fail($msg, 409);
+        $this->log('request_deleted', $r['booking_ref'] . ' · ' . $r['service']);
+        $this->ok(['message' => $msg]);
     }
 
     public function pay($id)                         // POST

@@ -42,11 +42,6 @@ class PaymentModel extends Model
     {
         return $this->add_paid(['id' => $b['id'], 'total' => $amount], $method, $provider, $providerRef);
     }
-    /* Cash paid at the front desk (walk-in guests) */
-    public function add_cash(array $b): int
-    {
-        return $this->add_paid($b, 'cash', 'frontdesk', '');
-    }
 
     /* ======================================================= read ======================================================= */
     public function provider_ref_exists(string $provider, string $providerRef): bool
@@ -61,10 +56,16 @@ class PaymentModel extends Model
     {
         return $this->db->table($this->table)->where('booking_id', $bookingId)->order_by('id', 'DESC')->get_all();
     }
-    /* The payment shown on the receipt */
-    public function receipt_for(int $bookingId): ?array
+    /* Delete a payment record (Delete of CRUD). Only a payment that was already REFUNDED can go: paid money is accounting evidence.
+       Returns [ok, message]. Hotel staff can only reach the payments of their own hotel. */
+    public function remove(int $id): array
     {
-        return $this->db->table($this->table)->where('booking_id', $bookingId)->in('status', ['paid', 'refunded'])->order_by('id', 'ASC')->limit(1)->get() ?: null;
+        $this->db->table('payments p')->select('p.id, p.status')->join('bookings b', 'b.id = p.booking_id');
+        $p = \Hotelgo\Support\Scope::limit($this->db, 'b.hotel_id')->where('p.id', $id)->get();
+        if (!$p) return [false, 'Payment not found.'];
+        if ($p['status'] !== 'refunded') return [false, 'Only a refunded payment can be deleted. A paid payment is kept for the records.'];
+        $this->delete($id);
+        return [true, 'Payment record deleted.'];
     }
     public function recent(int $limit = 200): array
     {
@@ -113,8 +114,9 @@ class PaymentModel extends Model
         }
         foreach ($rows as $r) {
             $day = date('Y-m-d', strtotime($r['paid_at']));
-            if (isset($byDay[$day])) $byDay[$day][$r['stay_type']] += (float) $r['amount'];
-            $byStay[$r['stay_type']] += (float) $r['amount'];
+            $kind = $r['stay_type'] === 'hourly' ? 'hourly' : 'overnight';             // overnight and day stays are one group in the reports
+            if (isset($byDay[$day])) $byDay[$day][$kind] += (float) $r['amount'];
+            $byStay[$kind] += (float) $r['amount'];
             $label = (\Hotelgo\Support\Scope::hotel() === null && ($r['hotel_name'] ?? '') !== '') ? $r['hotel_name'] . ' · ' . $r['type_name'] : $r['type_name'];
             $byType[$label] = ($byType[$label] ?? 0) + (float) $r['amount'];
             $byHotel[$r['hotel_name'] ?? '—'] = ($byHotel[$r['hotel_name'] ?? '—'] ?? 0) + (float) $r['amount'];

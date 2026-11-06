@@ -62,6 +62,7 @@ $router->group(['prefix' => '/api'], function ($router) {
 
     $router->get('/room-types', 'ApiCatalogController::room_types');          // public
     $router->get('/availability', 'ApiCatalogController::availability');      // public
+    $router->get('/offers', 'ApiCouponController::offers');                  // public: current promo offers
     $router->get('/hotels', 'ApiHotelController::hotels');                    // public: the hotels on the platform
     $router->get('/photos', 'ApiPhotoController::site');                      // public: the home-page pictures
     $router->post('/manage/photos', 'ApiPhotoController::save');             // upload / remove a picture
@@ -91,6 +92,11 @@ $router->group(['prefix' => '/api'], function ($router) {
     $router->put('/types/{id}', 'ApiCatalogController::type_update');
     $router->delete('/types/{id}', 'ApiCatalogController::type_delete');
 
+    $router->get('/coupons', 'ApiCouponController::coupons');
+    $router->post('/coupons', 'ApiCouponController::create');
+    $router->put('/coupons/{id}', 'ApiCouponController::update');
+    $router->delete('/coupons/{id}', 'ApiCouponController::delete');
+
     $router->get('/rooms', 'ApiCatalogController::rooms');
     $router->post('/rooms', 'ApiCatalogController::room_create');
     $router->put('/rooms/{id}', 'ApiCatalogController::room_update');
@@ -98,6 +104,7 @@ $router->group(['prefix' => '/api'], function ($router) {
 
     $router->get('/payments', 'ApiOwnerController::payments');
     $router->post('/payments/{id}/refund', 'ApiOwnerController::payment_refund');
+    $router->delete('/payments/{id}', 'ApiOwnerController::payment_delete');
 
     $router->get('/notifications', 'ApiOwnerController::notifications');
     $router->post('/notifications/{id}/retry', 'ApiOwnerController::notification_retry');
@@ -111,6 +118,7 @@ $router->group(['prefix' => '/api'], function ($router) {
     $router->get('/requests', 'ApiRequestController::requests');
     $router->post('/bookings/{ref}/requests', 'ApiRequestController::add');
     $router->put('/requests/{id}', 'ApiRequestController::decide');
+    $router->delete('/requests/{id}', 'ApiRequestController::remove');
     $router->post('/requests/{id}/pay', 'ApiRequestController::pay');
 
     $router->get('/calendar', 'ApiCalendarController::status');
@@ -121,4 +129,5 @@ $router->group(['prefix' => '/api'], function ($router) {
     $router->put('/settings', 'ApiOwnerController::settings_save');
     $router->get('/reports', 'ApiOwnerController::reports');
     $router->get('/audit', 'ApiOwnerController::audit');
+    $router->delete('/audit', 'ApiOwnerController::audit_purge');
 });

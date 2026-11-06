@@ -28,11 +28,20 @@ class ApiOwnerController extends \Hotelgo\Support\ApiBase
         $this->ok(['message' => $ok ? 'Payment refunded and the booking was cancelled.' : $msg], $ok ? 200 : 409);
     }
 
+    public function payment_delete($id)
+    {
+        $this->need('DELETE'); $this->who('admin');
+        [$ok, $msg] = $this->PaymentModel->remove((int) $id);
+        if (!$ok) $this->fail($msg, $msg === 'Payment not found.' ? 404 : 409);
+        $this->log('payment_deleted', 'payment #' . (int) $id);
+        $this->ok(['message' => $msg]);
+    }
+
     public function notifications()
     {
         $this->need('GET'); $this->who('admin');
         $this->call->library('messenger');
-        $this->ok(['data' => $this->NotificationModel->recent(200), 'services' => ['sms' => $this->messenger->sms_enabled(), 'email' => $this->messenger->email_enabled()]]);
+        $this->ok(['data' => $this->NotificationModel->recent(200), 'services' => ['email' => $this->messenger->email_enabled()]]);
     }
 
     public function notification_retry($id)
@@ -139,5 +148,17 @@ class ApiOwnerController extends \Hotelgo\Support\ApiBase
     {
         $this->need('GET'); $this->who('admin');
         $this->ok(['data' => $this->AuditModel->recent(300)]);
+    }
+
+    /* DELETE /api/audit?days=90  (platform admin only): clears entries older than 30+ days. The purge itself is written to the log. */
+    public function audit_purge()
+    {
+        $this->need('DELETE'); $this->who('admin');
+        if (!\Hotelgo\Support\Scope::platform()) $this->fail('Only the platform owner can clear the audit log.', 403);
+        $days = (int) ($this->api->get_query_params()['days'] ?? 90);
+        if ($days < 30) $this->fail('Only entries older than 30 days can be cleared.', 422);
+        $n = $this->AuditModel->purge($days);
+        $this->log('audit_purged', $n . ' entries older than ' . $days . ' days');
+        $this->ok(['message' => $n . ' old log entries cleared.', 'removed' => $n]);
     }
 }

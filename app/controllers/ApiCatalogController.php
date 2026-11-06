@@ -18,7 +18,8 @@ class ApiCatalogController extends \Hotelgo\Support\ApiBase
         $this->need('GET');
         $q = $this->api->get_query_params();
         $this->ok(['data' => $this->RoomTypeModel->types(true, (int) ($q['hotel'] ?? 0), (string) ($q['area'] ?? '')),
-                   'overnight' => ['start' => setting('overnight_start', '20:00'), 'end' => setting('overnight_end', '12:00')]]);
+                   'overnight' => ['start' => setting('overnight_start', '20:00'), 'end' => setting('overnight_end', '12:00')],
+                   'daily' => ['checkin' => setting('daily_checkin', '14:00'), 'checkout' => setting('daily_checkout', '12:00'), 'max_days' => max_stay_days()]]);
     }
 
     public function availability()
@@ -26,22 +27,24 @@ class ApiCatalogController extends \Hotelgo\Support\ApiBase
         $this->need('GET');
         $q = $this->api->get_query_params();
         $hours = isset($q['hours']) && ctype_digit((string) $q['hours']) ? (int) $q['hours'] : 3;
+        if (($q['stay'] ?? '') === 'daily') $hours = (isset($q['days']) ? (ctype_digit((string) $q['days']) ? (int) $q['days'] : 0) : 1) * 24;      // a stay of several days: the guest chooses how many (not given = 1; not a number = refused)
         $guests = isset($q['guests']) && ctype_digit((string) $q['guests']) ? max(1, (int) $q['guests']) : 1;
         $this->BookingModel->expire_holds();
         $w = $this->BookingModel->window((string) ($q['stay'] ?? ''), (string) ($q['date'] ?? ''), (string) ($q['time'] ?? '19:00'), $hours);
         if (!$w) {
-            $this->fail('Choose a valid stay type, date and start time (not in the past, within 60 days).', 422);
+            $this->fail('Choose a valid stay type, date and start time (not in the past, within 60 days; day stays up to ' . max_stay_days() . ' days).', 422);
         }
         $hotel = (int) ($q['hotel'] ?? 0); $area = (string) ($q['area'] ?? '');
         $avail = $this->BookingModel->availability($w['start'], $w['end'], $hotel, $area);
         $rows = [];
         foreach ($this->RoomTypeModel->types(true, $hotel, $area) as $t) {
             if ((int) $t['max_guests'] < $guests) continue;
+            if ($q['stay'] === 'daily' && (float) $t['price_daily'] <= 0) continue;         // this room type has no day stays
             $t['free']  = $avail[(int) $t['id']] ?? 0;
             $t['price'] = $this->BookingModel->price($t, (string) $q['stay'], (int) $w['hours']);
             $rows[] = $t;
         }
-        $this->ok(['window' => $w, 'data' => $rows]);
+        $this->ok(['window' => $w, 'days' => $q['stay'] === 'daily' ? intdiv((int) $w['hours'], 24) : 0, 'data' => $rows]);
     }
 
     public function types()                          // GET all (including hidden ones)

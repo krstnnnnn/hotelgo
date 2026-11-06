@@ -9,9 +9,9 @@ class RoomTypeModel extends Model
 {
     protected $table = 'room_types';
 
-    const SELECT = 't.id, t.hotel_id, t.name, t.description, t.amenities, t.max_guests, t.price_3h, t.price_6h, t.price_12h, t.price_overnight, t.cleaning_buffer_min, t.is_active, t.image_id, t.is_vip, t.included_services';
+    const SELECT = 't.id, t.hotel_id, t.name, t.description, t.amenities, t.max_guests, t.price_3h, t.price_6h, t.price_12h, t.price_overnight, t.price_daily, t.cleaning_buffer_min, t.is_active, t.image_id, t.is_vip, t.included_services';
 
-    const COLUMNS = ['hotel_id', 'name', 'description', 'amenities', 'max_guests', 'price_3h', 'price_6h', 'price_12h', 'price_overnight', 'cleaning_buffer_min', 'is_active', 'is_vip', 'included_services'];
+    const COLUMNS = ['hotel_id', 'name', 'description', 'amenities', 'max_guests', 'price_3h', 'price_6h', 'price_12h', 'price_overnight', 'price_daily', 'cleaning_buffer_min', 'is_active', 'is_vip', 'included_services'];
 
     /* ---------------- read ---------------- */
     /* Room types with their hotel. A signed-in hotel user only gets their own hotel; guests get every active hotel (or one: $hotelId / $area). */
@@ -62,8 +62,11 @@ class RoomTypeModel extends Model
         foreach (['price_3h', 'price_6h', 'price_12h', 'price_overnight'] as $k) {
             $d[$k] = filter_var((string) ($in[$k] ?? ''), FILTER_VALIDATE_FLOAT, ['options' => ['min_range' => 0, 'max_range' => 100000]]);
         }
+        // the price of one DAY of a stay of several days: left empty = same as the overnight price, 0 = this room type has no day stays
+        $pd = $in['price_daily'] ?? '';
+        $d['price_daily'] = ($pd === '' || $pd === null) ? $d['price_overnight'] : filter_var((string) $pd, FILTER_VALIDATE_FLOAT, ['options' => ['min_range' => 0, 'max_range' => 100000]]);
         $bad = !len_ok($d['name'], 2, 80) || $d['max_guests'] < 1 || $d['max_guests'] > 20 || $d['cleaning_buffer_min'] < 0 || $d['cleaning_buffer_min'] > 180
-            || $d['hotel_id'] < 1 || in_array(false, [$d['price_3h'], $d['price_6h'], $d['price_12h'], $d['price_overnight']], true);
+            || $d['hotel_id'] < 1 || in_array(false, [$d['price_3h'], $d['price_6h'], $d['price_12h'], $d['price_overnight'], $d['price_daily']], true);
         return $bad ? null : $d;
     }
 

@@ -43,10 +43,10 @@ class CalendarModel extends Model
     /* The Google event of a booking */
     private function event(array $b): array
     {
-        $stay = $b['stay_type'] === 'hourly' ? (int) $b['hours'] . '-hour stay' : 'Overnight stay';
+        $stay = $b['stay_type'] === 'hourly' ? (int) $b['hours'] . '-hour stay' : ($b['stay_type'] === 'daily' ? stay_label($b) . ' stay' : 'Overnight stay');
         $tz   = date_default_timezone_get();
         return [
-            'summary'     => 'Room ' . ($b['room_no'] ?: '?') . ' · ' . $b['guest_name'] . ' (' . ($b['stay_type'] === 'hourly' ? (int) $b['hours'] . 'h' : 'overnight') . ')',
+            'summary'     => 'Room ' . ($b['room_no'] ?: '?') . ' · ' . $b['guest_name'] . ' (' . ($b['stay_type'] === 'hourly' ? (int) $b['hours'] . 'h' : ($b['stay_type'] === 'daily' ? stay_label($b) : 'overnight')) . ')',
             'location'    => trim($b['hotel_name'] . ', ' . $b['hotel_address'], ', '),
             'description' => "HOTELGO booking " . $b['booking_ref'] . "\n" . $b['type_name'] . ' · ' . $stay . "\nGuest: " . $b['guest_name'] . ' · ' . $b['guest_mobile']
                 . ($b['guest_email'] ? ' · ' . $b['guest_email'] : '') . "\nGuests: " . (int) $b['guests'] . "\nTotal: PHP " . number_format((float) $b['total'], 2)

@@ -3,7 +3,7 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 
 /*
 |--------------------------------------------------------------------------
-| The five integrations (payment, SMS, map, email, calendar)
+| The integrations (payment, map, email, calendar)
 |--------------------------------------------------------------------------
 | Secrets are never written here. They are read from .env (your computer) or
 | Render > Environment. An empty value means that service is switched off.
@@ -15,12 +15,6 @@ $config['paymongo_public_key']     = (string) (getenv('PAYMONGO_PUBLIC_KEY') ?: 
 $config['paymongo_secret_key']     = (string) (getenv('PAYMONGO_SECRET_KEY') ?: getenv('PAYMENT_SECRET_KEY'));
 $config['paymongo_methods']        = getenv('PAYMONGO_METHODS') ?: 'gcash,paymaya,grab_pay,shopeepay';   /* e-wallets to offer; card / bank always go through the payment link */
 $config['paymongo_api']            = 'https://api.paymongo.com/v1';
-
-/* 2. SMS notification service (optional and paid): off (log) or semaphore */
-$config['sms_provider']            = getenv('SMS_PROVIDER') ?: 'log';
-$config['sms_api_key']             = (string) getenv('SMS_API_KEY');
-$config['sms_sender']              = (string) getenv('SMS_SENDER');
-$config['sms_otp_route']           = getenv('SMS_OTP_ROUTE') ?: 'messages';
 
 /* 2b. "Continue with Google" for guests: only the Client ID is needed (it is public). Empty = the button is hidden. */
 $config['google_client_id']        = (string) getenv('GOOGLE_CLIENT_ID');

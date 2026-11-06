@@ -12,7 +12,6 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 | The time zone is set by LavaLust itself ($config['date_default_timezone']).
 */
 
-use Hotelgo\Support\Csv;
 use Hotelgo\Support\Ics;
 use Hotelgo\Support\Money;
 use Hotelgo\Support\Phone;
@@ -21,7 +20,6 @@ use Hotelgo\Support\Phone;
 function e($value): string { return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
 /* Stops a request with a JSON error (used by MigrationController) */
 function abort(int $code = 404, string $message = 'Not found.'): void { http_response_code($code); header('Content-Type: application/json'); echo json_encode(['error' => $message]); exit; }
-function is_production(): bool { return config_item('environment') === 'production'; }
 
 function money($n): string { return Money::format($n); }
 function now_str(): string { return date('Y-m-d H:i:s'); }
@@ -48,7 +46,14 @@ function booking_ref(): string {
 function normalize_mobile(string $m): ?string { return Phone::normalize($m); }
 function mask_mobile(?string $m): string { return Phone::mask($m); }
 function mask_email(?string $m): string { return Phone::maskEmail($m); }
-function stay_label(array $b): string { return $b['stay_type'] === 'overnight' ? 'Overnight' : 'Hourly · ' . (int) $b['hours'] . ' hrs'; }
+/* "Hourly · 3 hrs", "Overnight" or "3 days" (a day stay keeps days x 24 in the hours column) */
+function stay_label(array $b): string
+{
+    if ($b['stay_type'] === 'daily') { $d = intdiv((int) $b['hours'], 24); return $d . ($d === 1 ? ' day' : ' days'); }
+    return $b['stay_type'] === 'overnight' ? 'Overnight' : 'Hourly · ' . (int) $b['hours'] . ' hrs';
+}
+/* The most days one booking may have (settings: max_stay_days) */
+function max_stay_days(): int { return max(1, min(60, (int) setting('max_stay_days', '30'))); }
 /* The hotel of a booking (its name, address, map position ...). Falls back to the old single-motel settings. */
 function hotel_of(?array $b, string $f): string {
     $v = $b['hotel_' . $f] ?? null;
@@ -87,12 +92,6 @@ function included_list(array $t): array {
     }
     return $out;
 }
-
-function pay_label(string $m): string { return ['ewallet' => 'E-wallet', 'card' => 'Card', 'bank' => 'Bank / OTC', 'cash' => 'Cash'][$m] ?? 'Online'; }
-function notice_label(string $s): string { return ['sent' => 'Sent', 'logged' => 'Not sent', 'failed' => 'Failed', 'retried' => 'Retried'][$s] ?? $s; }
-
-/* Semaphore wants 09XXXXXXXXX (we store +639XXXXXXXXX) */
-function to_local_mobile(string $m): string { return Phone::toLocal($m); }
 
 /* The calendar file (.ics): downloaded on the ticket page AND attached to the confirmation email */
 function ics_content(array $b): string { return Ics::booking($b, hotel_of($b, 'name'), hotel_of($b, 'address')); }

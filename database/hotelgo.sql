@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS room_types (
   price_6h DECIMAL(10,2) NOT NULL,
   price_12h DECIMAL(10,2) NOT NULL,
   price_overnight DECIMAL(10,2) NOT NULL,
+  price_daily DECIMAL(10,2) NOT NULL DEFAULT 0,
   cleaning_buffer_min INT NOT NULL DEFAULT 15,
   is_active TINYINT NOT NULL DEFAULT 1,
   hotel_id INT NULL,
@@ -102,6 +103,8 @@ CREATE TABLE IF NOT EXISTS bookings (
   hotel_id INT NULL,
   gcal_event_id VARCHAR(64) NULL,
   gcal_synced_at DATETIME NULL,
+  coupon_code VARCHAR(20) NULL,
+  discount DECIMAL(10,2) NOT NULL DEFAULT 0,
   FOREIGN KEY (user_id) REFERENCES users(id),
   FOREIGN KEY (room_type_id) REFERENCES room_types(id),
   FOREIGN KEY (room_id) REFERENCES rooms(id)
@@ -110,6 +113,27 @@ CREATE INDEX idx_bookings_room_time ON bookings (room_id, start_at, end_at);
 CREATE INDEX idx_bookings_user ON bookings (user_id);
 CREATE INDEX idx_bookings_status ON bookings (status);
 CREATE INDEX bookings_hotel ON bookings (hotel_id);
+
+CREATE TABLE IF NOT EXISTS coupons (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  hotel_id INT NULL,
+  code VARCHAR(20) NOT NULL UNIQUE,
+  title VARCHAR(80) NOT NULL,
+  kind VARCHAR(8) NOT NULL DEFAULT 'percent',
+  value DECIMAL(10,2) NOT NULL,
+  max_discount DECIMAL(10,2) NOT NULL DEFAULT 0,
+  min_spend DECIMAL(10,2) NOT NULL DEFAULT 0,
+  first_booking_only TINYINT NOT NULL DEFAULT 0,
+  starts_on DATE NULL,
+  ends_on DATE NULL,
+  stay_from DATE NULL,
+  stay_to DATE NULL,
+  max_uses INT NOT NULL DEFAULT 0,
+  per_user_limit INT NOT NULL DEFAULT 1,
+  is_public TINYINT NOT NULL DEFAULT 1,
+  is_active TINYINT NOT NULL DEFAULT 1,
+  created_at DATETIME NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS payments (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -206,16 +230,17 @@ CREATE TABLE IF NOT EXISTS settings (
 INSERT INTO settings (skey, svalue) VALUES
  ('motel_name','Coral Nest Motel'), ('motel_address','White Beach, Puerto Galera, Oriental Mindoro'),
  ('motel_lat','13.5188'), ('motel_lng','120.9647'), ('booking_fee','30'), ('hold_minutes','10'),
- ('cancel_hours','2'), ('overnight_start','20:00'), ('overnight_end','12:00');
+ ('cancel_hours','2'), ('overnight_start','20:00'), ('overnight_end','12:00'),
+ ('daily_checkin','14:00'), ('daily_checkout','12:00'), ('max_stay_days','30');
 
 INSERT INTO hotels (name, slug, area, address, description, lat, lng, phone, email, is_active, created_at) VALUES
  ('Coral Nest Motel','coral-nest-motel','White Beach','White Beach, Puerto Galera, Oriental Mindoro','Simple, clean rooms a short walk from the beach.',13.5188,120.9647,'+639708655964','hotelgoph@gmail.com',1,'2026-01-01 00:00:00');
 
-INSERT INTO room_types (hotel_id, name, description, amenities, max_guests, price_3h, price_6h, price_12h, price_overnight, cleaning_buffer_min) VALUES
- (1,'Standard Queen','Queen bed, aircon and hot shower.','Aircon, Hot shower, Wi-Fi',2,650,1000,1250,1500,15),
- (1,'Deluxe Sea View','Queen bed, private balcony and a window facing the bay.','Aircon, Balcony, Parking, Wi-Fi',3,950,1400,1800,2100,15),
- (1,'Family Suite','Two beds, TV and extra space for a family.','2 beds, Aircon, TV',5,1450,2100,2700,3200,20),
- (1,'Executive Suite','Large suite with a living area and mini fridge.','Aircon, TV, Mini fridge, Parking',4,1850,2600,3300,3800,20);
+INSERT INTO room_types (hotel_id, name, description, amenities, max_guests, price_3h, price_6h, price_12h, price_overnight, price_daily, cleaning_buffer_min) VALUES
+ (1,'Standard Queen','Queen bed, aircon and hot shower.','Aircon, Hot shower, Wi-Fi',2,650,1000,1250,1500,1500,15),
+ (1,'Deluxe Sea View','Queen bed, private balcony and a window facing the bay.','Aircon, Balcony, Parking, Wi-Fi',3,950,1400,1800,2100,2100,15),
+ (1,'Family Suite','Two beds, TV and extra space for a family.','2 beds, Aircon, TV',5,1450,2100,2700,3200,3200,20),
+ (1,'Executive Suite','Large suite with a living area and mini fridge.','Aircon, TV, Mini fridge, Parking',4,1850,2600,3300,3800,3800,20);
 
 INSERT INTO rooms (hotel_id, room_no, room_type_id, floor) VALUES
  (1,'101',1,1),(1,'102',1,1),(1,'103',1,1),(1,'104',1,1),(1,'105',1,1),(1,'106',1,1),

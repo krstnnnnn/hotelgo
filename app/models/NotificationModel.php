@@ -2,10 +2,10 @@
 defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 
 /*
-| Everything the system says to guests: SMS (optional, paid) and email (free Gmail relay). Table: notifications.
+| Everything the system says to guests: email (free Gmail relay). Table: notifications.
 | Every message is saved here with its status: sent / logged (the service is off, nothing was sent) / failed / retried.
-| Sending is done by the library app/libraries/Messenger.php. A failed SMS or email NEVER stops a booking.
-| Sign-up and password-reset codes go to the guest's EMAIL (free). No SMS needed.
+| Sending is done by the library app/libraries/Messenger.php. A failed email NEVER stops a booking.
+| Sign-up and password-reset codes go to the guest's EMAIL (free).
 */
 class NotificationModel extends Model
 {
@@ -39,7 +39,7 @@ class NotificationModel extends Model
     {
         return $this->db->table($this->table)->where('booking_id', $bookingId)->order_by('id', 'DESC')->get_all();
     }
-    /* The newest message of one channel (sms / email) for a booking */
+    /* The newest message of one channel (email) for a booking */
     public function latest(int $bookingId, string $channel): ?array
     {
         return $this->db->table($this->table)->where('booking_id', $bookingId)->where('channel', $channel)->order_by('id', 'DESC')->limit(1)->get() ?: null;
@@ -79,7 +79,6 @@ class NotificationModel extends Model
     public function booking_confirmed(array $b): void
     {
         $when = fmt_dt($b['start_at'], 'D j M g:i A') . ' - ' . fmt_dt($b['end_at'], 'g:i A');
-        $this->send((int) $b['id'], $this->uid($b), 'sms', $b['guest_mobile'], '', 'HOTELGO: Booking ' . $b['booking_ref'] . ' confirmed. Room ' . $b['room_no'] . ', ' . $when . '. Show this ref at check-in.');
         if ($b['guest_email'] === '') return;
         $link = front_url('booking/' . $b['booking_ref']);
         $text = "Hi " . $b['guest_name'] . ",\n\nYour HOTELGO booking is confirmed.\n\nReference: " . $b['booking_ref'] . "\nRoom: " . $b['room_no'] . ' (' . $b['type_name'] . ")\nCheck-in: " . fmt_dt($b['start_at']) . "\nCheck-out: " . fmt_dt($b['end_at']) . "\nPaid: " . money($b['total']) . "\n\n"
@@ -96,7 +95,7 @@ class NotificationModel extends Model
         return '<!doctype html><html><body style="margin:0;background:#F3F7F9;font-family:Arial,Helvetica,sans-serif;color:#0B2233"><div style="max-width:560px;margin:0 auto;padding:24px">'
             . '<div style="background:#0B2233;border-radius:20px 20px 0 0;padding:26px;color:#fff"><div style="font-size:20px;font-weight:800">HOTEL<span style="color:#F5A524">GO</span></div><div style="font-size:24px;font-weight:800;margin-top:14px">You\'re booked, ' . e(explode(' ', $b['guest_name'])[0]) . '!</div><div style="color:#C5D5DD;margin-top:4px">Payment received. Your room is assigned.</div></div>'
             . '<div style="background:#fff;border-radius:0 0 20px 20px;padding:26px"><div style="font-size:12px;letter-spacing:.12em;color:#0E7C86;font-weight:700">' . e(strtoupper(hotel_of($b, 'name'))) . '</div><div style="font-size:40px;font-weight:800;margin:4px 0">Room ' . e($b['room_no']) . '</div><div style="color:#4F6574">' . e($b['type_name']) . '</div>'
-            . '<table style="width:100%;border-collapse:collapse;margin-top:14px;border-top:1px solid #DCE6EB">' . $row('Booking reference', $b['booking_ref']) . $row('Check-in', fmt_dt($b['start_at'])) . $row('Check-out', fmt_dt($b['end_at'])) . $row('Stay', stay_label($b) . ' · ' . (int) $b['guests'] . ' guests') . $row('Paid', money($b['total'])) . '</table>'
+            . '<table style="width:100%;border-collapse:collapse;margin-top:14px;border-top:1px solid #DCE6EB">' . $row('Booking reference', $b['booking_ref']) . $row('Check-in', fmt_dt($b['start_at'])) . $row('Check-out', fmt_dt($b['end_at'])) . $row('Stay', stay_label($b) . ' · ' . (int) $b['guests'] . ' guests') . ((float) ($b['discount'] ?? 0) > 0 ? $row('Coupon ' . $b['coupon_code'], '- ' . money($b['discount'])) : '') . $row('Paid', money($b['total'])) . '</table>'
             . '<p style="margin:20px 0 8px"><a href="' . e($link) . '" style="display:inline-block;background:#0E7C86;color:#fff;text-decoration:none;font-weight:700;padding:12px 20px;border-radius:12px">View ticket &amp; receipt</a> '
             . '<a href="' . e(maps_link($b)) . '" style="display:inline-block;background:#0B2233;color:#fff;text-decoration:none;font-weight:700;padding:12px 20px;border-radius:12px">Get directions</a></p>'
             . '<p style="color:#4F6574;font-size:13px">' . e(hotel_of($b, 'address')) . '<br>A calendar file (reminder 30 minutes before check-in) is attached. Show your booking reference and a valid ID at check-in.</p></div></div></body></html>';
@@ -104,12 +103,10 @@ class NotificationModel extends Model
 
     public function booking_cancelled(array $b): void
     {
-        $this->send((int) $b['id'], $this->uid($b), 'sms', $b['guest_mobile'], '', 'HOTELGO: Booking ' . $b['booking_ref'] . ' was cancelled. Any payment will be refunded to your original payment method.');
         if ($b['guest_email'] !== '') $this->send((int) $b['id'], $this->uid($b), 'email', $b['guest_email'], 'Your HOTELGO booking was cancelled', "Hi " . $b['guest_name'] . ",\n\nBooking " . $b['booking_ref'] . " was cancelled. Any payment will be refunded to your original payment method.\n\n" . setting('motel_name') . "\n");
     }
     public function booking_rescheduled(array $b): void
     {
-        $this->send((int) $b['id'], $this->uid($b), 'sms', $b['guest_mobile'], '', 'HOTELGO: Booking ' . $b['booking_ref'] . ' moved to ' . fmt_dt($b['start_at'], 'D j M g:i A') . ' - ' . fmt_dt($b['end_at'], 'g:i A') . ', Room ' . $b['room_no'] . '.');
         if ($b['guest_email'] !== '') $this->send((int) $b['id'], $this->uid($b), 'email', $b['guest_email'], 'Your HOTELGO booking was changed', "Hi " . $b['guest_name'] . ",\n\nBooking " . $b['booking_ref'] . " is now:\nRoom " . $b['room_no'] . "\nCheck-in: " . fmt_dt($b['start_at']) . "\nCheck-out: " . fmt_dt($b['end_at']) . "\n");
     }
     /* A guest asked for an extra service: the motel is told by email (and sees it in the console: Requests, bell, badge) */
@@ -131,10 +128,9 @@ class NotificationModel extends Model
         if ($what === null) return;
         $price = (float) ($r['price'] ?? 0) > 0 && $r['status'] === 'accepted' ? ' Extra charge: ' . money($r['price']) . '. You can pay it at the desk or online on your booking page.' : '';
         $text = 'HOTELGO: Your request "' . $r['service'] . '" for booking ' . $b['booking_ref'] . ' ' . $what . '.' . $price . ($reply !== '' ? ' Note: ' . $reply : '');
-        $this->send((int) $b['id'], $this->uid($b), 'sms', $b['guest_mobile'], '', $text);
         if ($b['guest_email'] !== '') $this->send((int) $b['id'], $this->uid($b), 'email', $b['guest_email'], 'Your HOTELGO request ' . $what, "Hi " . $b['guest_name'] . ",\n\n" . substr($text, 9) . "\n\nYour booking page: " . front_url('booking/' . $b['booking_ref']) . "\n");
     }
-    /* sign-up and password-reset codes go to the guest's EMAIL (free). No SMS needed. */
+    /* sign-up and password-reset codes go to the guest's EMAIL (free). */
     public function code(int $userId, string $email, string $purpose, string $code): void
     {
         $what = $purpose === 'reset' ? 'password reset' : 'verification';

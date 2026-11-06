@@ -3,7 +3,7 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 
 /*
 | Who did what, and when. Table: audit_logs.
-| Nobody can edit or delete these rows from the website: only the owner can read them.
+| Nobody can edit these rows. The owner can read them; only the platform admin can clear OLD entries (purge).
 */
 class AuditModel extends Model
 {
@@ -33,13 +33,9 @@ class AuditModel extends Model
             ->get_all();
     }
 
-    /* How many times one person did one thing since a time (used to limit the "Send test" buttons) */
-    public function count_since(int $userId, string $action, string $since): int
+    /* Delete entries older than $days days (Delete of CRUD). Returns how many were removed. */
+    public function purge(int $days): int
     {
-        return (int) $this->db->table($this->table)
-            ->where('user_id', $userId)
-            ->where('action', $action)
-            ->where('created_at', '>', $since)
-            ->count();
+        return (int) $this->db->table($this->table)->where('created_at', '<', date('Y-m-d H:i:s', time() - $days * 86400))->delete();
     }
 }

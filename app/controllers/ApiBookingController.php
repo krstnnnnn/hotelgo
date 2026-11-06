@@ -40,7 +40,7 @@ class ApiBookingController extends \Hotelgo\Support\ApiBase
         ]);
     }
 
-    /* Revenue of this week (Monday to Sunday), hourly and overnight apart, for the line chart */
+    /* Revenue of this week (Monday to Sunday), hourly and overnight / day stays apart, for the line chart */
     private function week_revenue(): array
     {
         $mon = strtotime('monday this week');
@@ -52,7 +52,7 @@ class ApiBookingController extends \Hotelgo\Support\ApiBase
         foreach ($this->PaymentModel->paid_between(array_key_first($days), array_key_last($days)) as $p) {
             $d = substr((string) $p['paid_at'], 0, 10);
             if (isset($days[$d])) {
-                $days[$d][$p['stay_type'] === 'overnight' ? 'overnight' : 'hourly'] += (float) $p['amount'];
+                $days[$d][$p['stay_type'] === 'hourly' ? 'hourly' : 'overnight'] += (float) $p['amount'];      // overnight and day stays are one line
             }
         }
         return array_values($days);
@@ -109,6 +109,7 @@ class ApiBookingController extends \Hotelgo\Support\ApiBase
         $in = $this->body();
         $type = $this->RoomTypeModel->type((int) ($in['room_type_id'] ?? 0));
         $stay = (string) ($in['stay'] ?? ''); $hours = (int) ($in['hours'] ?? 3); $guests = (int) ($in['guests'] ?? 1);
+        if ($stay === 'daily') $hours = (int) ($in['days'] ?? 1) * 24;                    // a stay of several days: the desk types how many
         $date = trim((string) ($in['date'] ?? '')) ?: date('Y-m-d');                  // arrival: today, right now, unless the desk picks another time
         $time = trim((string) ($in['time'] ?? '')) ?: date('H:i');
         $w = $this->BookingModel->window($stay, $date, $time, $hours);
@@ -116,7 +117,8 @@ class ApiBookingController extends \Hotelgo\Support\ApiBase
         $mobile = $rawMobile === '' ? '' : normalize_mobile($rawMobile);                // the mobile number is optional
         $err = [];
         if (!$type || !(int) $type['is_active']) $err[] = 'Choose a room type.';
-        if (!$w) $err[] = 'Choose a valid stay and arrival time (hourly 3, 6 or 12 hours, or overnight; not in the past, within 60 days).';
+        if (!$w) $err[] = 'Choose a valid stay and arrival time (hourly 3, 6 or 12 hours, overnight, or 1 to ' . max_stay_days() . ' days; not in the past, within 60 days).';
+        if ($type && $stay === 'daily' && (float) $type['price_daily'] <= 0) $err[] = 'This room type has no day stays.';
         if ($type && ($guests < 1 || $guests > (int) $type['max_guests'])) $err[] = 'Too many guests for that room type.';
         if (!len_ok($name, 2, 120)) $err[] = 'Enter the guest name.';
         if ($rawMobile !== '' && !$mobile) $err[] = 'Enter a valid mobile number, or leave it empty.';
@@ -126,8 +128,8 @@ class ApiBookingController extends \Hotelgo\Support\ApiBase
         $method = (string) ($in['method'] ?? 'cash');                                                         // how it is paid at the desk
         if ($mode === 'now' && !in_array($method, ['cash', 'ewallet', 'card', 'bank'], true)) $this->fail('Choose Cash, E-wallet, Card or Bank / OTC.', 422);
         if ($mode === 'online' && !$this->paymongo->configured()) $this->fail('Online payment is not switched on (set PAYMONGO_SECRET_KEY).', 422);
-        $res = $this->BookingModel->walkin($type, $w, ['name' => $name, 'mobile' => $mobile, 'email' => '', 'id_type' => '', 'id_last4' => '', 'guests' => $guests], $stay, $mode, $method);
-        if (!$res['ok']) $this->fail($res['error'], 409);
+        $res = $this->BookingModel->walkin($type, $w, ['name' => $name, 'mobile' => $mobile, 'email' => '', 'id_type' => '', 'id_last4' => '', 'guests' => $guests], $stay, $mode, $method, trim((string) ($in['coupon'] ?? '')));
+        if (!$res['ok']) $this->fail($res['error'], empty($res['coupon']) ? 409 : 422);
         if ($mode === 'now') $this->NotificationModel->booking_confirmed($res['booking']);
         $this->log($mode === 'online' ? 'walkin_online_started' : ($mode === 'later' ? 'walkin_pay_later' : 'walkin_created'), $res['booking']['booking_ref']);
         $this->ok(['data' => $res['booking']], 201);
@@ -143,9 +145,10 @@ class ApiBookingController extends \Hotelgo\Support\ApiBase
             $row['guest_name'] = trim((string) $in['guest_name']);
         }
         if (isset($in['guest_mobile'])) {
-            $m = normalize_mobile((string) $in['guest_mobile']);
-            if (!$m) $this->fail('Enter a valid mobile number.', 422);
-            $row['guest_mobile'] = $m;
+            $raw = trim((string) $in['guest_mobile']);                  // the mobile is optional at the front desk
+            $m = $raw === '' ? '' : normalize_mobile($raw);
+            if ($m === null || $m === false || ($raw !== '' && !$m)) $this->fail('Enter a valid mobile number.', 422);
+            $row['guest_mobile'] = (string) $m;
         }
         if (isset($in['guest_email'])) {
             $e = strtolower(trim((string) $in['guest_email']));

@@ -14,7 +14,7 @@ class BookingModel extends Model
     const COLUMNS = 'b.id, b.booking_ref, b.user_id, b.room_type_id, b.room_id, b.stay_type, b.hours, b.start_at, b.end_at, b.guests, '
         . 'b.guest_name, b.guest_mobile, b.guest_email, b.id_type, b.id_last4, b.room_rate, b.booking_fee, b.total, b.status, '
         . 'b.pay_method, b.pay_ref, b.source, b.hold_expires_at, b.created_at, b.cancelled_at, b.checked_in_at, b.checked_out_at, '
-        . 'b.hotel_id, b.gcal_event_id, t.name AS type_name, t.is_vip, t.included_services, r.room_no, h.name AS hotel_name, h.address AS hotel_address, h.lat AS hotel_lat, h.lng AS hotel_lng, h.phone AS hotel_phone';
+        . 'b.hotel_id, b.gcal_event_id, b.coupon_code, b.discount, t.name AS type_name, t.is_vip, t.included_services, r.room_no, h.name AS hotel_name, h.address AS hotel_address, h.lat AS hotel_lat, h.lng AS hotel_lng, h.phone AS hotel_phone';
 
     const STATUSES = ['pending_payment', 'confirmed', 'checked_in', 'checked_out', 'cancelled', 'expired'];
 
@@ -78,6 +78,11 @@ class BookingModel extends Model
             if (!$t || $t->format('H:i') !== $time || !in_array($hours, [3, 6, 12], true)) return null;
             $start = new DateTime($date . ' ' . $time);
             $end   = (clone $start)->modify('+' . $hours . ' hours');
+        } elseif ($stay === 'daily') {                                   // several days: $hours is days x 24; check-in on the arrival day, check-out on the last day
+            $days = intdiv($hours, 24);
+            if ($hours % 24 !== 0 || $days < 1 || $days > max_stay_days()) return null;
+            $start = new DateTime($date . ' ' . setting('daily_checkin', '14:00'));
+            $end   = (new DateTime($date . ' ' . setting('daily_checkout', '12:00')))->modify('+' . $days . ' days');
         } elseif ($stay === 'overnight') {
             $hours = 0;
             $start = new DateTime($date . ' ' . setting('overnight_start', '20:00'));
@@ -91,6 +96,7 @@ class BookingModel extends Model
 
     public function price(array $type, string $stay, int $hours): float
     {
+        if ($stay === 'daily') return (float) $type['price_daily'] * intdiv($hours, 24);          // a fixed price per day x the days the guest chose
         if ($stay === 'overnight') return (float) $type['price_overnight'];
         return (float) ($hours === 3 ? $type['price_3h'] : ($hours === 6 ? $type['price_6h'] : $type['price_12h']));
     }
@@ -136,7 +142,7 @@ class BookingModel extends Model
     /* ================================================= create / read / update / delete ================================================= */
 
     /* Create the booking and HOLD a room (this is the automatic room assignment) */
-    public function create(?array $user, array $type, array $w, array $f, string $stay, string $source = 'online', string $status = 'pending_payment', string $method = ''): array
+    public function create(?array $user, array $type, array $w, array $f, string $stay, string $source = 'online', string $status = 'pending_payment', string $method = '', string $coupon = ''): array
     {
         $this->db->transaction();
         $this->expire_holds();
@@ -154,6 +160,12 @@ class BookingModel extends Model
             }
         }
         $rate = $this->price($type, $stay, (int) $w['hours']);
+        $off = 0.0; $code = null;
+        if (trim($coupon) !== '') {                                                         // a promo code: checked again here, inside the transaction, so two guests cannot both take the last use
+            $c = $this->models('CouponModel')->check($coupon, (int) ($user['id'] ?? 0), (int) ($type['hotel_id'] ?? 0), $rate, $w['start']);
+            if (!$c['ok']) { $this->db->roll_back(); return ['ok' => false, 'error' => $c['error'], 'coupon' => true]; }
+            $off = $c['discount']; $code = $c['coupon']['code'];
+        }
         $fee  = $source === 'walkin' ? 0.0 : (float) setting('booking_fee', '30');
         do {
             $ref = booking_ref();
@@ -162,7 +174,7 @@ class BookingModel extends Model
             'booking_ref' => $ref, 'user_id' => $user['id'] ?? null, 'hotel_id' => $type['hotel_id'] ?? null, 'room_type_id' => $type['id'], 'room_id' => $free[0]['id'],
             'stay_type' => $stay, 'hours' => $w['hours'], 'start_at' => $w['start'], 'end_at' => $w['end'], 'guests' => $f['guests'],
             'guest_name' => $f['name'], 'guest_mobile' => $f['mobile'], 'guest_email' => $f['email'], 'id_type' => $f['id_type'], 'id_last4' => $f['id_last4'],
-            'room_rate' => $rate, 'booking_fee' => $fee, 'total' => $rate + $fee, 'status' => $status, 'pay_method' => $method, 'source' => $source,
+            'room_rate' => $rate, 'coupon_code' => $code, 'discount' => $off, 'booking_fee' => $fee, 'total' => $rate - $off + $fee, 'status' => $status, 'pay_method' => $method, 'source' => $source,
             'hold_expires_at' => date('Y-m-d H:i:s', time() + (int) setting('hold_minutes', '10') * 60), 'created_at' => now_str(),
         ]);
         $this->db->commit();
@@ -173,21 +185,21 @@ class BookingModel extends Model
        $mode   now    = the guest pays at the desk, so the booking is confirmed straight away ($method = cash | ewallet | card | bank)
                later  = the room is reserved and the guest pays at the desk later (the room is released if nobody pays 30 minutes after arrival)
                online = the guest pays on the phone (wallet / link): the room is held until PayMongo says paid */
-    public function walkin(array $type, array $w, array $f, string $stay, string $mode = 'now', string $method = 'cash'): array
+    public function walkin(array $type, array $w, array $f, string $stay, string $mode = 'now', string $method = 'cash', string $coupon = ''): array
     {
         if ($mode === 'online') {
-            $res = $this->create(null, $type, $w, $f, $stay, 'walkin', 'pending_payment', 'ewallet');
+            $res = $this->create(null, $type, $w, $f, $stay, 'walkin', 'pending_payment', 'ewallet', $coupon);
             return $res['ok'] ? $res + ['booking' => $this->by_ref($res['ref'])] : $res;
         }
         if ($mode === 'later') {
-            $res = $this->create(null, $type, $w, $f, $stay, 'walkin', 'pending_payment', '');
+            $res = $this->create(null, $type, $w, $f, $stay, 'walkin', 'pending_payment', '', $coupon);
             if (!$res['ok']) return $res;
             $until = max(strtotime($w['start']) + 1800, time() + 1800);       // 30 minutes after arrival (never less than 30 minutes from now)
             $this->db->table($this->table)->where('id', $res['id'])->update(['hold_expires_at' => date('Y-m-d H:i:s', $until)]);
             return $res + ['booking' => $this->by_ref($res['ref'])];
         }
         $method = in_array($method, ['cash', 'ewallet', 'card', 'bank'], true) ? $method : 'cash';
-        $res = $this->create(null, $type, $w, $f, $stay, 'walkin', 'confirmed', $method);
+        $res = $this->create(null, $type, $w, $f, $stay, 'walkin', 'confirmed', $method, $coupon);
         if (!$res['ok']) return $res;
         $this->db->table($this->table)->where('id', $res['id'])->update(['hold_expires_at' => null]);
         $b = $this->by_ref($res['ref']);
@@ -199,10 +211,6 @@ class BookingModel extends Model
     public function by_ref(string $ref): ?array
     {
         return $this->detailed()->where('b.booking_ref', $ref)->get() ?: null;
-    }
-    public function by_pay_ref(string $payRef): ?array
-    {
-        return $this->detailed()->where('b.pay_ref', $payRef)->get() ?: null;
     }
     /* A guest can NEVER open someone else's booking: the owner is part of the query */
     public function find_mine(string $ref, int $userId): ?array
@@ -243,7 +251,7 @@ class BookingModel extends Model
         if ($status !== '') {
             $this->db->where('b.status', $status);
         }
-        if (in_array($f['stay'] ?? '', ['hourly', 'overnight'], true)) {
+        if (in_array($f['stay'] ?? '', ['hourly', 'overnight', 'daily'], true)) {
             $this->db->where('b.stay_type', $f['stay']);
         }
         if (!empty($f['hotel_id'])) {
@@ -262,12 +270,6 @@ class BookingModel extends Model
         }
         return $this->db->order_by('b.start_at', 'DESC')->limit($limit)->get_all();
     }
-    /* Everything for a report between two dates */
-    public function starting_between(string $from, string $to): array
-    {
-        return $this->detailed()->where('b.start_at', '>=', $from)->where('b.start_at', '<', $to)->order_by('b.start_at', 'ASC')->get_all();
-    }
-
     /* Dashboard numbers */
     public function checkins_soon(): int
     {

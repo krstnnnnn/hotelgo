@@ -128,11 +128,6 @@ class RoomModel extends Model
             $this->update($id, $row);
         }
     }
-    public function set_status(int $id, string $status): void
-    {
-        $this->update($id, ['status' => $status]);
-    }
-
     /* ---------------- delete ---------------- */
     /* A room that has bookings is kept (set it to maintenance instead). Returns [ok, reason]. */
     public function remove(int $id): array

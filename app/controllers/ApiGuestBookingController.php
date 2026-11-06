@@ -4,9 +4,10 @@ defined('PREVENT_DIRECT_ACCESS') OR exit('No direct script access allowed');
 /*
 | HOTELGO JSON API: what a signed-in GUEST does with bookings. A guest can only ever open HIS OWN bookings (the owner is part of the query).
 |   GET  /api/guest/quote?type=&stay=&date=&time=&hours=&guests=     price, fee, window and free rooms before booking
-|   POST /api/guest/bookings                                          create a booking (held, waiting for payment)
+|   POST /api/guest/bookings                                          create a booking (held, waiting for payment); optional "coupon" promo code
+|   (the quote also takes &coupon=CODE and answers with the discount, or why the code does not work)
 |   GET  /api/guest/bookings?tab=upcoming|past|cancelled              my bookings
-|   GET  /api/guest/bookings/{ref}                                    one booking (+ package, requests, QR, last SMS / email)
+|   GET  /api/guest/bookings/{ref}                                    one booking (+ package, requests, QR, last email)
 |   POST /api/guest/bookings/{ref}/cancel      POST .../modify {date,time}
 |   GET  /api/guest/bookings/{ref}/pay                                how to pay (provider, wallets, time left)
 |   POST /api/guest/bookings/{ref}/pay        { do: wallet|link|confirm|check }
@@ -19,7 +20,7 @@ class ApiGuestBookingController extends \Hotelgo\Support\ApiBase
     public function __construct()
     {
         parent::__construct();
-        $this->call->model(['RoomTypeModel', 'BookingModel', 'PaymentModel', 'NotificationModel', 'ServiceRequestModel']);
+        $this->call->model(['RoomTypeModel', 'BookingModel', 'PaymentModel', 'NotificationModel', 'ServiceRequestModel', 'CouponModel']);
         $this->call->library('paymongo');
     }
 
@@ -38,18 +39,26 @@ class ApiGuestBookingController extends \Hotelgo\Support\ApiBase
     private function search_values(array $src): ?array
     {
         $stay = (string) ($src['stay'] ?? ''); $hours = (isset($src['hours']) && ctype_digit((string) $src['hours'])) ? (int) $src['hours'] : 3;
+        if ($stay === 'daily') $hours = (isset($src['days']) ? (ctype_digit((string) $src['days']) ? (int) $src['days'] : 0) : 1) * 24;      // a stay of several days (not given = 1; not a number = refused)
         $date = (string) ($src['date'] ?? ''); $time = (string) ($src['time'] ?? '19:00');
         $guests = (isset($src['guests']) && ctype_digit((string) $src['guests'])) ? (int) $src['guests'] : 0;
         $typeId = (isset($src['type']) && ctype_digit((string) $src['type'])) ? (int) $src['type'] : 0;
         $type = $typeId ? $this->RoomTypeModel->type($typeId) : null;
         $w = $this->BookingModel->window($stay, $date, $time, $hours);
-        if (!$type || !(int) $type['is_active'] || !$w || $guests < 1 || $guests > (int) $type['max_guests']) return null;
-        return ['p' => ['stay' => $stay, 'date' => $date, 'time' => $time, 'hours' => $hours, 'guests' => $guests, 'type' => $typeId], 'type' => $type, 'w' => $w];
+        if (!$type || !(int) $type['is_active'] || !$w || $guests < 1 || $guests > (int) $type['max_guests'] || ($stay === 'daily' && (float) $type['price_daily'] <= 0)) return null;
+        return ['p' => ['stay' => $stay, 'date' => $date, 'time' => $time, 'hours' => $hours, 'days' => $stay === 'daily' ? intdiv($hours, 24) : 0, 'guests' => $guests, 'type' => $typeId], 'type' => $type, 'w' => $w];
     }
-    private function money_part(array $sv): array
+    /* room rate, promo code discount, fee and total. A code that does not work is explained in "coupon" and the total stays full price. */
+    private function money_part(array $sv, string $code = ''): array
     {
         $rate = $this->BookingModel->price($sv['type'], $sv['p']['stay'], (int) $sv['w']['hours']); $fee = (float) setting('booking_fee', '30');
-        return ['rate' => $rate, 'fee' => $fee, 'total' => $rate + $fee];
+        $off = 0.0; $coupon = null;
+        if (trim($code) !== '') {
+            $c = $this->CouponModel->check($code, (int) $this->member()['id'], (int) $sv['type']['hotel_id'], $rate, $sv['w']['start']);
+            $coupon = $c['ok'] ? ['ok' => true, 'code' => $c['coupon']['code'], 'title' => $c['coupon']['title'], 'discount' => $c['discount']] : ['ok' => false, 'message' => $c['error']];
+            $off = $c['ok'] ? $c['discount'] : 0.0;
+        }
+        return ['rate' => $rate, 'discount' => $off, 'coupon' => $coupon, 'fee' => $fee, 'total' => $rate - $off + $fee];
     }
     private function online(): bool { return $this->paymongo->configured(); }
 
@@ -61,7 +70,7 @@ class ApiGuestBookingController extends \Hotelgo\Support\ApiBase
         $this->BookingModel->expire_holds();
         $free = count($this->BookingModel->free_rooms((int) $sv['type']['id'], $sv['w']['start'], $sv['w']['end'], (int) $sv['type']['cleaning_buffer_min']));
         $this->ok(['search' => $sv['p'], 'type' => $sv['type'], 'window' => $sv['w'], 'free' => $free, 'hold_minutes' => (int) setting('hold_minutes', '10'),
-            'cancel_hours' => (int) setting('cancel_hours', '2')] + $this->money_part($sv));
+            'cancel_hours' => (int) setting('cancel_hours', '2')] + $this->money_part($sv, (string) ($this->api->get_query_params()['coupon'] ?? '')));
     }
 
     public function create()
@@ -83,8 +92,8 @@ class ApiGuestBookingController extends \Hotelgo\Support\ApiBase
         if (empty($in['agree'])) $err[] = 'Please accept the house rules and cancellation policy.';
         if ($err) $this->fail(implode(' ', $err), 422);
         $f['id_last4'] = substr($idNum, -4);      // we keep ONLY the last 4 characters of the ID number (data privacy)
-        $res = $this->BookingModel->create($me, $sv['type'], $sv['w'], $f, $sv['p']['stay'], 'online', 'pending_payment', $method);
-        if (!$res['ok']) $this->fail($res['error'], 409);
+        $res = $this->BookingModel->create($me, $sv['type'], $sv['w'], $f, $sv['p']['stay'], 'online', 'pending_payment', $method, trim((string) ($in['coupon'] ?? '')));
+        if (!$res['ok']) $this->fail($res['error'], empty($res['coupon']) ? 409 : 422);
         if (empty($me['mobile']) && !$this->UserModel->by_mobile($f['mobile'])) $this->UserModel->save_profile((int) $me['id'], ['mobile' => $f['mobile']]);   // a Google sign-up has no number yet: keep the one they just gave
         $this->log('booking_created', $res['ref']);
         $this->ok(['booking_ref' => $res['ref'], 'status' => 'pending_payment'], 201);
@@ -107,7 +116,7 @@ class ApiGuestBookingController extends \Hotelgo\Support\ApiBase
         $reqs = array_map(fn($r) => $r + ['owing' => $this->ServiceRequestModel->owing($r)], $this->ServiceRequestModel->for_booking((int) $b['id']));
         $ok = in_array($b['status'], ['confirmed', 'checked_in'], true);
         $this->ok(['data' => $this->clean_booking($b), 'can_cancel' => $this->BookingModel->can_cancel($b), 'can_modify' => $b['status'] === 'confirmed' && $this->BookingModel->can_cancel($b),
-            'sms' => $latest('sms'), 'mail' => $latest('email'), 'requests' => $reqs, 'services' => $this->ServiceRequestModel->services(), 'online' => $this->online(),
+            'mail' => $latest('email'), 'requests' => $reqs, 'services' => $this->ServiceRequestModel->services(), 'online' => $this->online(),
             'included' => included_list($b), 'qr' => $ok ? qr_svg(front_url('bookings/' . $b['booking_ref'])) : null,
             'hotel' => ['name' => hotel_of($b, 'name'), 'address' => hotel_of($b, 'address'), 'lat' => (float) hotel_of($b, 'lat'), 'lng' => (float) hotel_of($b, 'lng')],
             'cancel_hours' => (int) setting('cancel_hours', '2')]);

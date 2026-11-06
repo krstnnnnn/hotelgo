@@ -43,6 +43,13 @@ class ServiceRequestModel extends Model
     {
         return $this->base()->where('r.id', $id)->get() ?: null;
     }
+    /* Delete a request (Delete of CRUD). A request whose extra price was paid stays: it is a money record. Returns [ok, message] */
+    public function remove(array $r): array
+    {
+        if ($r['paid_at'] !== null && $r['paid_at'] !== '') return [false, 'This request was paid, so it is kept for the records.'];
+        $this->delete((int) $r['id']);
+        return [true, 'Request deleted.'];
+    }
     /* $status: open (new + accepted) | all | new | accepted | done | declined */
     public function listing(string $status = 'open', int $limit = 200): array
     {

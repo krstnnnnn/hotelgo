@@ -54,7 +54,7 @@ Access tokens last 15 minutes, refresh tokens 7 days (stored hashed in `refresh_
 
 ## Where the website is
 
-The landing page, room search, booking, payment, "My bookings", receipts, the legal pages and the staff console are all in the React project `hotelgo-web`. This API only sends data. Links inside emails and SMS, and the PayMongo return address, are built from `FRONTEND_URL` (`front_url()` in `app/helpers/hotelgo_helper.php`), so set `FRONTEND_URL` to the React site's address.
+The landing page, room search, booking, payment, "My bookings", receipts, the legal pages and the staff console are all in the React project `hotelgo-web`. This API only sends data. Links inside emails, and the PayMongo return address, are built from `FRONTEND_URL` (`front_url()` in `app/helpers/hotelgo_helper.php`), so set `FRONTEND_URL` to the React site's address.
 
 ## Run it on your computer (Laragon)
 
@@ -63,7 +63,7 @@ The landing page, room search, booking, payment, "My bookings", receipts, the le
 3. In the project folder: `composer install` (creates `vendor/`).
 4. Build the tables with the migration command (see below): `php lava migration run`.
 5. `php lava serve` (or `php -S localhost:8000 -t public`), then open `http://localhost:8000` (you will see the JSON status, not a page). The API is at `http://localhost:8000/api`. Run the React project (`hotelgo-web`) to see the website.
-6. Staff sign in: on the React site, at the hidden address you chose when you built it (`STAFF_PATH`, e.g. `/#/secret1234567890`). First owner account `admin@hotelgo.ph`, temporary password `ChangeMe!2026`; you must change it at first sign-in.
+6. Staff sign in: on the React site, at the hidden address you chose when you built it (`VITE_STAFF_PATH`, e.g. `/#/secret1234567890`). First owner account `admin@hotelgo.ph`, temporary password `ChangeMe!2026`; you must change it at first sign-in.
 
 ## Database migrations
 
@@ -167,3 +167,11 @@ A VIP guest can also **ask for something extra** (balcony set-up, karaoke, a che
 4. The front desk can also add a request or an extra charge to any booking (Reservations > booking > Requests & extras).
 
 Tables and code: `service_requests` (migration `018`), `ServiceRequestModel`, `ApiRequestController`, `ApiGuestBookingController::request_add`, React `pages/Requests.jsx`. Run `php lava migration run` once.  (rooms VIP1 and VIP2) to the first hotel; edit or delete it in **Room types**.
+
+## Stays of several days
+
+Each room type has a **Per day (₱)** price (Rooms → Room types). The guest (or the front desk) picks **Several days** and types how many days; the total is `price per day × days`. Check-in and check-out times (`daily_checkin` 14:00, `daily_checkout` 12:00) and the longest stay (`max_stay_days`, default 30) are set in Settings → Booking rules. API: send `stay=daily&days=N` to `/availability`, `/guest/quote`, `/guest/bookings` and `POST /bookings`. Run `php lava migration run` once (migration 022) to add the column and settings; existing room types start with the overnight price as their day price. A price of 0 means that room type has no day stays.
+
+## Coupons (promo codes)
+
+Owners make coupons in **Coupons** (staff area): a percent or fixed discount off the room rate (never the booking fee), optionally **first booking only** (new-guest welcome), valid between dates (an occasion such as Christmas), only for stays inside certain dates, with a minimum room rate, a total use limit and a limit per guest. Public coupons are listed on the home page; untick "show on the website" for a secret code. Guests type the code at checkout (`GET /guest/quote?...&coupon=CODE`, `POST /guest/bookings {coupon}`); the front desk can type it on a walk-in (`POST /bookings {coupon}`). Uses are counted from bookings, so a cancelled or expired booking gives its use back. API: `GET /offers` (public), `GET/POST /coupons`, `PUT/DELETE /coupons/{id}` (owner). Run `php lava migration run` once (migration 023).
