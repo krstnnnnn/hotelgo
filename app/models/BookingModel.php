@@ -244,6 +244,12 @@ class BookingModel extends Model
         return $out;
     }
 
+    /* the guest's preferences and note, saved on the booking (see the requests_part rules in ApiGuestBookingController) */
+    public function set_requests(int $id, array $cols): void
+    {
+        $this->db->table($this->table)->where('id', $id)->update($cols);
+    }
+
     public function find_mine(string $ref, int $userId): ?array
     {
         return $this->detailed()->where('b.booking_ref', $ref)->where('b.user_id', $userId)->get() ?: null;

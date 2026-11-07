@@ -24,6 +24,33 @@ class ApiGuestBookingController extends \Hotelgo\Support\ApiBase
         $this->call->library('paymongo');
     }
 
+    /* ---------------- guest preferences (Agoda-style "Special requests") ---------------- */
+    private const ROOM_PREFS = ['', 'non_smoking', 'smoking'];
+    private const BED_PREFS = ['', 'large', 'twin'];
+    private const EXTRA_PREFS = ['high_floor', 'luxury_storage', 'near_elevator', 'away_elevator', 'quiet_room', 'honeymoon', 'baby_cot', 'car_parking', 'airport_transfer'];
+    private const ARRIVALS = ['unknown', '00:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00', '22:00', '23:00'];
+
+    /* checks the preferences and the note. Returns [errors, columns to save on the booking]. Nothing unknown is saved. */
+    private function requests_part(array $in): array
+    {
+        $p = is_array($in['preferences'] ?? null) ? $in['preferences'] : [];
+        $room = (string) ($p['room'] ?? ''); $bed = (string) ($p['bed'] ?? '');
+        $extras = array_values(array_unique(array_map(fn($x) => is_scalar($x) ? (string) $x : '', (array) ($p['extras'] ?? []))));
+        $eta = (string) ($in['arrival_eta'] ?? '');
+        $note = trim((string) preg_replace('/\s+/', ' ', (string) ($in['special_requests'] ?? '')));
+        $err = [];
+        if (!in_array($room, self::ROOM_PREFS, true)) $err[] = 'Choose a valid room type preference.';
+        if (!in_array($bed, self::BED_PREFS, true)) $err[] = 'Choose a valid bed setup.';
+        if (array_diff($extras, self::EXTRA_PREFS)) $err[] = 'Choose valid additional preferences.';
+        if ($eta !== '' && !in_array($eta, self::ARRIVALS, true)) $err[] = 'Choose a valid arrival time.';
+        if (mb_strlen($note) > 500) $err[] = 'Please keep the additional requests under 500 characters.';
+        return [$err, [
+            'preferences' => json_encode(['room' => $room, 'bed' => $bed, 'extras' => $extras]),
+            'special_requests' => $note !== '' ? $note : null,
+            'arrival_eta' => $eta !== '' ? $eta : null,
+        ]];
+    }
+
     /* ---------------- helpers ---------------- */
     private function mine(string $ref): array
     {
@@ -100,12 +127,12 @@ class ApiGuestBookingController extends \Hotelgo\Support\ApiBase
         if (!len_ok($f['name'], 2, 120)) $err[] = 'Please enter the guest full name.';
         if (!$f['mobile']) $err[] = 'Please enter a valid Philippine mobile number.';
         if (!filter_var($f['email'], FILTER_VALIDATE_EMAIL)) $err[] = 'Please enter a valid email address.';
-        if (!in_array($f['id_type'], ["Driver's license", 'Passport', 'UMID', 'National ID', 'Other government ID'], true)) $err[] = 'Please choose a valid ID type.';
-        if (strlen($idNum) < 4 || strlen($idNum) > 30) $err[] = 'Please enter your ID number.';
         if (!in_array($method, ['ewallet', 'card', 'bank'], true)) $err[] = 'Please choose a payment method.';
         if (empty($in['agree'])) $err[] = 'Please accept the house rules and cancellation policy.';
+        [$reqErr, $reqCols] = $this->requests_part($in);
+        $err = array_merge($err, $reqErr);
         if ($err) $this->fail(implode(' ', $err), 422);
-        $f['id_last4'] = substr($idNum, -4);      // we keep ONLY the last 4 characters of the ID number (data privacy)
+        $f['id_type'] = ''; $f['id_last4'] = '';        // no ID is collected at booking (the ID check was removed)
         $code = trim((string) ($in['coupon'] ?? ''));
         if ($code === '') {                                  // no code typed: the same automatic voucher the guest saw on the checkout page
             $best = $this->CouponModel->best((int) $me['id'], (int) $sv['type']['hotel_id'], $this->BookingModel->price($sv['type'], $sv['p']['stay'], (int) $sv['w']['hours']), $sv['w']['start']);
@@ -116,6 +143,7 @@ class ApiGuestBookingController extends \Hotelgo\Support\ApiBase
         $res = $this->BookingModel->create($me, $sv['type'], $sv['w'], $f, $sv['p']['stay'], 'online', 'pending_payment', $method, $code);
         if (!$res['ok']) $this->fail($res['error'], empty($res['coupon']) ? 409 : 422);
         if (empty($me['mobile']) && !$this->UserModel->by_mobile($f['mobile'])) $this->UserModel->save_profile((int) $me['id'], ['mobile' => $f['mobile']]);   // a Google sign-up has no number yet: keep the one they just gave
+        $this->BookingModel->set_requests((int) $res['id'], $reqCols);
         $this->log('booking_created', $res['ref']);
         $this->ok(['booking_ref' => $res['ref'], 'status' => 'pending_payment'], 201);
     }
