@@ -231,6 +231,19 @@ class BookingModel extends Model
         return $this->detailed()->where('b.booking_ref', $ref)->get() ?: null;
     }
     /* A guest can NEVER open someone else's booking: the owner is part of the query */
+    /* how many hours ago each room type was last booked (paid or confirmed) in the last 24 hours: [room_type_id => hours] */
+    public function recent_bookings(array $typeIds): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $typeIds))));
+        if (!$ids) return [];
+        $marks = implode(',', array_fill(0, count($ids), '?'));
+        $since = date('Y-m-d H:i:s', time() - 86400);
+        $rows = $this->db->raw("SELECT room_type_id, MAX(created_at) AS last_at FROM bookings WHERE room_type_id IN ($marks) AND created_at >= ? AND status IN ('confirmed','checked_in','checked_out') GROUP BY room_type_id", array_merge($ids, [$since]))->fetchAll(PDO::FETCH_ASSOC);
+        $out = [];
+        foreach ($rows as $r) $out[(int) $r['room_type_id']] = max(0, intdiv(time() - strtotime($r['last_at']), 3600));
+        return $out;
+    }
+
     public function find_mine(string $ref, int $userId): ?array
     {
         return $this->detailed()->where('b.booking_ref', $ref)->where('b.user_id', $userId)->get() ?: null;

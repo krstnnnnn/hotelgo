@@ -10,7 +10,7 @@ class ApiCatalogController extends \Hotelgo\Support\ApiBase
     public function __construct()
     {
         parent::__construct();
-        $this->call->model(['RoomTypeModel', 'RoomModel', 'BookingModel']);
+        $this->call->model(['RoomTypeModel', 'RoomModel', 'BookingModel', 'ReviewModel', 'CouponModel']);
     }
 
     public function room_types()
@@ -38,11 +38,18 @@ class ApiCatalogController extends \Hotelgo\Support\ApiBase
         $types = $this->RoomTypeModel->types(true, $hotel, $area);
         $avail = $this->BookingModel->availability($w['start'], $w['end'], $hotel, $area, $types);
         $rows = [];
+        $sums = $this->ReviewModel->summaries(array_map(fn($t) => (int) $t['hotel_id'], $types));        // the rating of every hotel, in one query
+        $recent = $this->BookingModel->recent_bookings(array_map(fn($t) => (int) $t['id'], $types));      // "someone booked N hours ago"
         foreach ($types as $t) {
             if ((int) $t['max_guests'] < $guests) continue;
             if ($q['stay'] === 'daily' && (float) $t['price_daily'] <= 0) continue;         // this room type has no day stays
             $t['free']  = $avail[(int) $t['id']] ?? 0;
             $t['price'] = $this->BookingModel->price($t, (string) $q['stay'], (int) $w['hours']);
+            $t['rating'] = $sums[(int) $t['hotel_id']] ?? ReviewModel::EMPTY;
+            $t['booked_hours_ago'] = $recent[(int) $t['id']] ?? null;
+            $best = $this->CouponModel->best(0, (int) $t['hotel_id'], (float) $t['price'], $w['start']);   // a voucher anyone can use (no sign-in needed)
+            $t['voucher'] = $best ? ['code' => $best['coupon']['code'], 'title' => $best['coupon']['title'], 'discount' => $best['discount'],
+                'final' => round((float) $t['price'] - $best['discount'], 2)] : null;
             $rows[] = $t;
         }
         $this->ok(['window' => $w, 'days' => $q['stay'] === 'daily' ? intdiv((int) $w['hours'], 24) : 0, 'data' => $rows]);

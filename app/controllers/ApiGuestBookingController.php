@@ -20,7 +20,7 @@ class ApiGuestBookingController extends \Hotelgo\Support\ApiBase
     public function __construct()
     {
         parent::__construct();
-        $this->call->model(['RoomTypeModel', 'BookingModel', 'PaymentModel', 'NotificationModel', 'ServiceRequestModel', 'CouponModel']);
+        $this->call->model(['RoomTypeModel', 'BookingModel', 'PaymentModel', 'NotificationModel', 'ServiceRequestModel', 'CouponModel', 'ReviewModel']);
         $this->call->library('paymongo');
     }
 
@@ -30,6 +30,14 @@ class ApiGuestBookingController extends \Hotelgo\Support\ApiBase
         $me = $this->member();
         $b = preg_match('/^HG-[A-Z0-9]{6}$/', $ref) ? $this->BookingModel->find_mine($ref, (int) $me['id']) : null;   // user id comes from the TOKEN, never from the request
         return $b ?: $this->fail('We could not find that booking.', 404);
+    }
+    /* can this guest rate this stay, and what did they write before? */
+    private function review_state(array $b, int $userId): array
+    {
+        $e = $this->ReviewModel->eligible($b, $userId);
+        $mine = $this->ReviewModel->mine((int) $b['id']);
+        return ['can' => $e['ok'], 'why' => $e['why'],
+            'mine' => $mine ? ['rating' => (int) $mine['rating'], 'comment' => (string) ($mine['comment'] ?? ''), 'created_at' => $mine['created_at']] : null];
     }
     private function clean_booking(array $b): array
     {
@@ -49,15 +57,21 @@ class ApiGuestBookingController extends \Hotelgo\Support\ApiBase
         return ['p' => ['stay' => $stay, 'date' => $date, 'time' => $time, 'hours' => $hours, 'days' => $stay === 'daily' ? intdiv($hours, 24) : 0, 'guests' => $guests, 'type' => $typeId], 'type' => $type, 'w' => $w];
     }
     /* room rate, promo code discount, fee and total. A code that does not work is explained in "coupon" and the total stays full price. */
+    /* room rate, voucher discount, fee and total. A voucher is applied AUTOMATICALLY when no code is typed (the best one this guest qualifies for).
+       "-" means the guest removed the voucher. A code that does not work is explained in "coupon" and the total stays full price. */
     private function money_part(array $sv, string $code = ''): array
     {
         $rate = $this->BookingModel->price($sv['type'], $sv['p']['stay'], (int) $sv['w']['hours']); $fee = (float) setting('booking_fee', '30');
-        $off = 0.0; $coupon = null;
-        if (trim($code) !== '') {
-            $c = $this->CouponModel->check($code, (int) $this->member()['id'], (int) $sv['type']['hotel_id'], $rate, $sv['w']['start']);
+        $uid = (int) $this->member()['id']; $hotel = (int) $sv['type']['hotel_id']; $code = trim($code);
+        $coupon = null;
+        if ($code === '') {
+            $best = $this->CouponModel->best($uid, $hotel, $rate, $sv['w']['start']);
+            if ($best) $coupon = ['ok' => true, 'auto' => true, 'code' => $best['coupon']['code'], 'title' => $best['coupon']['title'], 'discount' => $best['discount']];
+        } elseif ($code !== '-') {
+            $c = $this->CouponModel->check($code, $uid, $hotel, $rate, $sv['w']['start']);
             $coupon = $c['ok'] ? ['ok' => true, 'code' => $c['coupon']['code'], 'title' => $c['coupon']['title'], 'discount' => $c['discount']] : ['ok' => false, 'message' => $c['error']];
-            $off = $c['ok'] ? $c['discount'] : 0.0;
         }
+        $off = ($coupon && !empty($coupon['ok'])) ? (float) $coupon['discount'] : 0.0;
         return ['rate' => $rate, 'discount' => $off, 'coupon' => $coupon, 'fee' => $fee, 'total' => $rate - $off + $fee];
     }
     private function online(): bool { return $this->paymongo->configured(); }
@@ -92,7 +106,14 @@ class ApiGuestBookingController extends \Hotelgo\Support\ApiBase
         if (empty($in['agree'])) $err[] = 'Please accept the house rules and cancellation policy.';
         if ($err) $this->fail(implode(' ', $err), 422);
         $f['id_last4'] = substr($idNum, -4);      // we keep ONLY the last 4 characters of the ID number (data privacy)
-        $res = $this->BookingModel->create($me, $sv['type'], $sv['w'], $f, $sv['p']['stay'], 'online', 'pending_payment', $method, trim((string) ($in['coupon'] ?? '')));
+        $code = trim((string) ($in['coupon'] ?? ''));
+        if ($code === '') {                                  // no code typed: the same automatic voucher the guest saw on the checkout page
+            $best = $this->CouponModel->best((int) $me['id'], (int) $sv['type']['hotel_id'], $this->BookingModel->price($sv['type'], $sv['p']['stay'], (int) $sv['w']['hours']), $sv['w']['start']);
+            $code = $best ? $best['coupon']['code'] : '';
+        } elseif ($code === '-') {
+            $code = '';                                      // the guest removed the voucher
+        }
+        $res = $this->BookingModel->create($me, $sv['type'], $sv['w'], $f, $sv['p']['stay'], 'online', 'pending_payment', $method, $code);
         if (!$res['ok']) $this->fail($res['error'], empty($res['coupon']) ? 409 : 422);
         if (empty($me['mobile']) && !$this->UserModel->by_mobile($f['mobile'])) $this->UserModel->save_profile((int) $me['id'], ['mobile' => $f['mobile']]);   // a Google sign-up has no number yet: keep the one they just gave
         $this->log('booking_created', $res['ref']);
@@ -119,7 +140,8 @@ class ApiGuestBookingController extends \Hotelgo\Support\ApiBase
             'mail' => $latest('email'), 'requests' => $reqs, 'services' => $this->ServiceRequestModel->services(), 'online' => $this->online(),
             'included' => included_list($b), 'qr' => $ok ? qr_svg(front_url('bookings/' . $b['booking_ref'])) : null,
             'hotel' => ['name' => hotel_of($b, 'name'), 'address' => hotel_of($b, 'address'), 'lat' => (float) hotel_of($b, 'lat'), 'lng' => (float) hotel_of($b, 'lng')],
-            'cancel_hours' => (int) setting('cancel_hours', '2')]);
+            'cancel_hours' => (int) setting('cancel_hours', '2'),
+            'review' => $this->review_state($b, (int) $this->member()['id'])]);
     }
 
     public function cancel($ref)

@@ -105,6 +105,19 @@ class CouponModel extends Model
         return ['ok' => true, 'coupon' => $c, 'discount' => $off];
     }
 
+    /* The best PUBLIC code this guest can use for this booking (the biggest saving), or null.
+       $userId 0 = not signed in (so a first-booking-only code is not offered yet). */
+    public function best(int $userId, int $hotelId, float $rate, string $stayStart): ?array
+    {
+        $best = null;
+        foreach ($this->db->table('coupons')->where('is_public', 1)->where('is_active', 1)->get_all() as $c) {
+            if ($c['hotel_id'] !== null && (int) $c['hotel_id'] !== $hotelId) continue;
+            $r = $this->check($c['code'], $userId, $hotelId, $rate, $stayStart);
+            if ($r['ok'] && (!$best || $r['discount'] > $best['discount'])) $best = $r;
+        }
+        return $best;
+    }
+
     /* ---------------- create / update ---------------- */
     /* Checks and cleans input. Returns [cleanColumns, null] or [null, whyNot]. */
     public function clean(array $in, ?int $id = null): array

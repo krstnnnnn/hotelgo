@@ -52,6 +52,9 @@ $router->group(['prefix' => '/api'], function ($router) {
     $router->post('/guest/bookings/{ref}/requests/{id}/pay', 'ApiGuestBookingController::request_pay');
     $router->get('/guest/bookings/{ref}/receipt', 'ApiGuestBookingController::receipt');
     $router->get('/guest/bookings/{ref}/calendar', 'ApiGuestBookingController::calendar');
+    $router->post('/guest/bookings/{ref}/review', 'ApiReviewController::review_post');
+    $router->get('/guest/favorites', 'ApiReviewController::favorites');
+    $router->post('/guest/favorites/{id}', 'ApiReviewController::favorite_toggle');
 
     /* staff and owner (the console) */
     $router->post('/auth/login', 'ApiAuthController::login');
@@ -62,6 +65,7 @@ $router->group(['prefix' => '/api'], function ($router) {
 
     $router->get('/room-types', 'ApiCatalogController::room_types');          // public
     $router->get('/availability', 'ApiCatalogController::availability');      // public
+    $router->get('/hotels/{id}/reviews', 'ApiReviewController::hotel_reviews');   // public: the rating and the latest comments
     $router->get('/offers', 'ApiCouponController::offers');                  // public: current promo offers
     $router->get('/hotels', 'ApiHotelController::hotels');                    // public: the hotels on the platform
     $router->get('/photos', 'ApiPhotoController::site');                      // public: the home-page pictures
