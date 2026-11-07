@@ -64,6 +64,7 @@ $router->group(['prefix' => '/api'], function ($router) {
     $router->post('/me/password', 'ApiAuthController::change_password');
 
     $router->get('/room-types', 'ApiCatalogController::room_types');          // public
+    $router->get('/room-types/{id}/details', 'ApiRoomPhotoController::details');   // public: room, hotel, photos, rating, reviews
     $router->get('/availability', 'ApiCatalogController::availability');      // public
     $router->get('/hotels/{id}/reviews', 'ApiReviewController::hotel_reviews');   // public: the rating and the latest comments
     $router->get('/offers', 'ApiCouponController::offers');                  // public: current promo offers
@@ -95,6 +96,8 @@ $router->group(['prefix' => '/api'], function ($router) {
     $router->post('/types', 'ApiCatalogController::type_create');
     $router->put('/types/{id}', 'ApiCatalogController::type_update');
     $router->delete('/types/{id}', 'ApiCatalogController::type_delete');
+    $router->post('/types/{id}/photos', 'ApiRoomPhotoController::photo_add');
+    $router->delete('/types/{id}/photos/{image}', 'ApiRoomPhotoController::photo_remove');
 
     $router->get('/coupons', 'ApiCouponController::coupons');
     $router->post('/coupons', 'ApiCouponController::create');
