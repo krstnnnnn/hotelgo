@@ -29,6 +29,15 @@ class ApiCatalogController extends \Hotelgo\Support\ApiBase
         $hours = isset($q['hours']) && ctype_digit((string) $q['hours']) ? (int) $q['hours'] : 3;
         if (($q['stay'] ?? '') === 'daily') $hours = (isset($q['days']) ? (ctype_digit((string) $q['days']) ? (int) $q['days'] : 0) : 1) * 24;      // a stay of several days: the guest chooses how many (not given = 1; not a number = refused)
         $guests = isset($q['guests']) && ctype_digit((string) $q['guests']) ? max(1, (int) $q['guests']) : 1;
+        // Short cache: the same search (same date, time, guests, hotel) is answered from a file for 60 seconds.
+        // The room list and vouchers are the same for every visitor, so one saved answer can serve them all.
+        // A booking still checks the room when it is made, so a room taken in the last minute is refused there.
+        $norm = $q; ksort($norm);
+        $cacheFile = ROOT_DIR . 'runtime/cache/avail_' . sha1(json_encode($norm)) . '.json';
+        if (is_file($cacheFile) && time() - filemtime($cacheFile) < 60) {
+            $saved = json_decode((string) file_get_contents($cacheFile), true);
+            if (is_array($saved)) $this->ok($saved);
+        }
         $this->BookingModel->expire_holds();
         $w = $this->BookingModel->window((string) ($q['stay'] ?? ''), (string) ($q['date'] ?? ''), (string) ($q['time'] ?? '19:00'), $hours);
         if (!$w) {
@@ -52,7 +61,9 @@ class ApiCatalogController extends \Hotelgo\Support\ApiBase
                 'final' => round((float) $t['price'] - $best['discount'], 2)] : null;
             $rows[] = $t;
         }
-        $this->ok(['window' => $w, 'days' => $q['stay'] === 'daily' ? intdiv((int) $w['hours'], 24) : 0, 'data' => $rows]);
+        $payload = ['window' => $w, 'days' => $q['stay'] === 'daily' ? intdiv((int) $w['hours'], 24) : 0, 'data' => $rows];
+        @file_put_contents($cacheFile, json_encode($payload), LOCK_EX);
+        $this->ok($payload);
     }
 
     public function types()                          // GET all (including hidden ones)

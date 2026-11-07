@@ -48,31 +48,43 @@ class CouponModel extends Model
         }
         return $out;
     }
+    /* Answers remembered for the rest of this request. The catalog asks "best voucher?" once per room type,
+       so without this the same coupon lookups ran hundreds of times (slow on a remote database). */
+    private array $memo = [];
+    private function remember(string $key, callable $fn)
+    {
+        if (!array_key_exists($key, $this->memo)) $this->memo[$key] = $fn();
+        return $this->memo[$key];
+    }
+
     public function by_code(string $code): ?array
     {
-        return $this->db->table('coupons')->where('code', strtoupper(trim($code)))->get() ?: null;
+        $code = strtoupper(trim($code));
+        return $this->remember('code:' . $code, fn() => $this->db->table('coupons')->where('code', $code)->get() ?: null);
     }
 
     /* bookings that hold or used this coupon (cancelled / expired ones do not count) */
     private function usage(int $couponId, ?int $userId = null): int
     {
-        $c = $this->find($couponId);
-        if (!$c) return 0;
-        $base = function () use ($c, $userId) {
-            $this->db->table('bookings')->where('coupon_code', $c['code']);
-            if ($userId) $this->db->where('user_id', $userId);
-            return $this->db;
-        };
-        $paid = $base()->in('status', ['confirmed', 'checked_in', 'checked_out'])->count();
-        $held = $base()->where('status', 'pending_payment')->where('hold_expires_at', '>', now_str())->count();
-        return $paid + $held;
+        return $this->remember('usage:' . $couponId . ':' . (int) $userId, function () use ($couponId, $userId) {
+            $c = $this->find($couponId);
+            if (!$c) return 0;
+            $base = function () use ($c, $userId) {
+                $this->db->table('bookings')->where('coupon_code', $c['code']);
+                if ($userId) $this->db->where('user_id', $userId);
+                return $this->db;
+            };
+            $paid = $base()->in('status', ['confirmed', 'checked_in', 'checked_out'])->count();
+            $held = $base()->where('status', 'pending_payment')->where('hold_expires_at', '>', now_str())->count();
+            return $paid + $held;
+        });
     }
     public function used(int $couponId): int { return $this->usage($couponId); }
 
     /* Has this guest paid for a booking before? */
     private function has_paid_booking(int $userId): bool
     {
-        return $this->db->table('bookings')->where('user_id', $userId)->in('status', ['confirmed', 'checked_in', 'checked_out'])->count() > 0;
+        return $this->remember('paid:' . $userId, fn() => $this->db->table('bookings')->where('user_id', $userId)->in('status', ['confirmed', 'checked_in', 'checked_out'])->count() > 0);
     }
 
     /* ---------------- the rules ---------------- */
@@ -110,7 +122,8 @@ class CouponModel extends Model
     public function best(int $userId, int $hotelId, float $rate, string $stayStart): ?array
     {
         $best = null;
-        foreach ($this->db->table('coupons')->where('is_public', 1)->where('is_active', 1)->get_all() as $c) {
+        $public = $this->remember('public', fn() => $this->db->table('coupons')->where('is_public', 1)->where('is_active', 1)->get_all());
+        foreach ($public as $c) {
             if ($c['hotel_id'] !== null && (int) $c['hotel_id'] !== $hotelId) continue;
             $r = $this->check($c['code'], $userId, $hotelId, $rate, $stayStart);
             if ($r['ok'] && (!$best || $r['discount'] > $best['discount'])) $best = $r;
